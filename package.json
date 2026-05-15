@@ -8,6 +8,6 @@
     "devctl": "bin/devctl.mjs"
   },
   "scripts": {
-    "check": "node bin/devctl.mjs --help && node bin/devctl.mjs config --project examples/lmdlp.devctl.yml && node bin/devctl.mjs doctor"
+    "check": "node --check bin/devctl.mjs && node bin/devctl.mjs --help && node bin/devctl.mjs config --project examples/lmdlp.devctl.yml && node bin/devctl.mjs ssh config --project examples/lmdlp.devctl.yml && node bin/devctl.mjs doctor"
   }
 }

@@ -24,9 +24,20 @@ Depuis un repo projet contenant `.devctl.yml`:
 devctl doctor
 devctl config
 devctl init
+devctl up
+devctl hosts sync
+devctl ssh config
+devctl provision
 ```
 
 Si `.devctl.yml` manque, `devctl` affiche un warning et propose `devctl init`.
+
+Commandes MVP:
+- `doctor`: verifie les prerequis hote et affiche les commandes d'installation par OS.
+- `up`: cree la VM Multipass si elle n'existe pas, apres confirmation ressources.
+- `hosts sync`: ajoute ou met a jour `<vm-ip> <host>` dans `/etc/hosts`.
+- `ssh config`: imprime le bloc SSH avec `ForwardAgent yes`.
+- `provision`: lance le playbook Ansible embarque dans `devctl`.
 
 ## Installation globale
 
