@@ -1,0 +1,22 @@
+org: lmdlp
+project: lmdlp-client
+repo: git@github.com:lmdlp/lmdlp_client.git
+vm_name: lmdlp-dev
+host: lmdlp-dev.test
+vm_user: ubuntu
+repo_dir: /home/ubuntu/workspaces/lmdlp_client
+infisical:
+  project_path: /lmdlp
+  default_env: dev
+resources:
+  cpus: 4
+  memory: 6G
+  disk: 50G
+ports:
+  app: 3000
+  preview: 4173
+  supabase_api: 54321
+  supabase_db: 54322
+  supabase_studio: 54323
+  mailpit: 54324
+

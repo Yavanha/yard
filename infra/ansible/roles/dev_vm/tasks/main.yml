@@ -1,0 +1,13 @@
+---
+- name: Create workspace root
+  ansible.builtin.file:
+    path: "{{ workspace_root }}"
+    state: directory
+    owner: "{{ vm_user }}"
+    group: "{{ vm_user }}"
+    mode: "0755"
+
+- name: Placeholder for dev VM provisioning
+  ansible.builtin.debug:
+    msg: "Docker, devcontainer CLI, Supabase CLI and /proc hardening will be implemented after the architecture plan is finalized."
+

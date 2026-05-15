@@ -1,0 +1,7 @@
+---
+- name: Provision isolated development VM
+  hosts: dev_vm
+  become: true
+  roles:
+    - dev_vm
+

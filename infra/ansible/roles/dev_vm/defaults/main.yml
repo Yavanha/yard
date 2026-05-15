@@ -1,0 +1,9 @@
+---
+devtools_prefix: /opt/devtools
+workspace_root: /home/ubuntu/workspaces
+vm_user: ubuntu
+docker_users:
+  - ubuntu
+devcontainer_cli_version: "0.80.2"
+supabase_cli_version: "2.34.3"
+

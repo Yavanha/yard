@@ -1,0 +1,13 @@
+{
+  "name": "devctl",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "devctl": "bin/devctl.mjs"
+  },
+  "scripts": {
+    "check": "node bin/devctl.mjs --help && node bin/devctl.mjs config --project examples/lmdlp.devctl.yml && node bin/devctl.mjs doctor"
+  }
+}
+
