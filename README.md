@@ -12,6 +12,12 @@ Objectif V1:
 
 ## Usage
 
+Verification locale:
+
+```bash
+pnpm run check
+```
+
 Depuis un repo projet contenant `.devctl.yml`:
 
 ```bash
@@ -21,6 +27,33 @@ devctl init
 ```
 
 Si `.devctl.yml` manque, `devctl` affiche un warning et propose `devctl init`.
+
+## Installation globale
+
+V1 locale:
+
+```bash
+pnpm link --global
+devctl --help
+```
+
+Plus tard, `devctl` pourra etre publie comme package prive et installe avec:
+
+```bash
+pnpm add --global devctl
+```
+
+## Securite supply-chain
+
+`devctl` peut etre compromis comme tout outil de developpement s'il tire du code non maitrise. En V1, la CLI reduit ce risque:
+
+- aucune dependance runtime;
+- aucun script `postinstall`;
+- configuration projet explicite dans `.devctl.yml`;
+- secrets reels jamais stockes dans le repo;
+- versions d'outils externes a pinner avant installation dans la VM.
+
+Quand des dependances seront ajoutees, elles devront etre limitees, pinnees dans le lockfile et auditees avant publication.
 
 ## Config projet
 
@@ -53,4 +86,3 @@ ports:
 ## Etat
 
 Scaffold initial. Les commandes d'orchestration Multipass/Ansible seront ajoutees apres validation du plan.
-
