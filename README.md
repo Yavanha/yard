@@ -152,3 +152,13 @@ go test ./...
 ```
 
 Objectif: porter les commandes une par une, avec tests, avant de remplacer le binaire Node.
+
+Registre projets host:
+
+```bash
+go run ./cmd/devctl project add example /path/to/repo
+go run ./cmd/devctl project list
+go run ./cmd/devctl use example
+```
+
+Le registre vit par defaut dans `~/.config/devctl/config.yaml`. Les choix locaux comme `vm.mode: shared|dedicated` restent dans ce registre, pas dans `.devctl.yml`.

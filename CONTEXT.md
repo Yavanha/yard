@@ -36,6 +36,7 @@ _Avoid_: terminal bloque, commande ad hoc
 
 - Un **Host Controller** pilote un ou plusieurs **Projects**.
 - Un **Project** est declare dans un **Project Registry** local a la machine hote.
+- Le **Project Registry** vit par defaut dans `~/.config/devctl/config.yaml`.
 - Un **Project** peut utiliser une **Dev VM** partagee ou dediee selon `vm.mode` dans le **Project Registry**.
 - Un **Environment** appartient a exactement un **Project**.
 - **Start** reutilise les ressources deja demarrees au lieu de dupliquer ou detruire des processus.
@@ -55,3 +56,18 @@ _Avoid_: terminal bloque, commande ad hoc
 - Les noms comme `lmdlp` sont des exemples de **Project**, jamais des cas hardcodes dans `devctl`.
 - `start` signifie demarrage idempotent et non destructif; les actions destructives appartiennent a `reset` ou a des commandes explicitement confirmees.
 - "process ouvert" signifie un **Process** observable et controle par `devctl status/logs`, pas un terminal interactif laisse ouvert.
+
+## Registry shape
+
+```yaml
+current_project: example
+projects:
+  example:
+    path: /Users/me/workspaces/example
+    config: /Users/me/workspaces/example/.devctl.yml
+    vm:
+      mode: shared
+      name: devctl-shared
+```
+
+`config` est optionnel et vaut `<path>/.devctl.yml` par defaut. `vm.mode` vaut `shared` par defaut, et `vm.name` vaut `devctl-shared` quand le mode est partage.
