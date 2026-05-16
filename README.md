@@ -180,6 +180,9 @@ go run ./cmd/yard process list example
 go run ./cmd/yard process start example app
 go run ./cmd/yard process logs example app --tail 80
 go run ./cmd/yard process stop example app
+go run ./cmd/yard start example
+go run ./cmd/yard stop example
+go run ./cmd/yard stop example --vm
 go run ./cmd/yard status
 go run ./cmd/yard status example
 go run ./cmd/yard setup example
@@ -192,4 +195,5 @@ Notes de cadrage:
 - `Project` reste un repo enregistre. Un backend separe sera donc un autre `Project`.
 - Un futur `Environment` pourra composer plusieurs `Projects` pour front, backend, workers ou services.
 - Dans un meme repo, declarer plusieurs `services` vendor-neutral, par exemple `web`, `api` ou `worker`; Yard ne depend pas de Nest, PHP, Vite ou Supabase pour les piloter.
+- `start` cree/demarre la VM puis lance les services sans doubler les processus deja ouverts; `stop` coupe les services et n'eteint une VM partagee qu'avec `--vm`.
 - La decouverte GitHub/orgs doit rester cote host, probablement via `gh`, pour reutiliser les credentials locaux sans les persister dans la VM.

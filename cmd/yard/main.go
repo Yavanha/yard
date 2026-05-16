@@ -31,6 +31,7 @@ type args struct {
 	vmName       string
 	tailLines    int
 	follow       bool
+	stopVM       bool
 	execCommand  []string
 	help         bool
 }
@@ -66,6 +67,10 @@ func run(argv []string) error {
 		return runExec(parsed)
 	case "process":
 		return runProcess(parsed)
+	case "start":
+		return runStart(parsed)
+	case "stop":
+		return runStop(parsed)
 	case "status":
 		return runStatus(parsed)
 	case "setup":
@@ -129,6 +134,8 @@ func parseArgs(argv []string) (args, error) {
 			index++
 		case "--follow", "-f":
 			parsed.follow = true
+		case "--vm":
+			parsed.stopVM = true
 		default:
 			if len(value) > 0 && value[0] == '-' {
 				return args{}, fmt.Errorf("unknown flag: %s", value)
@@ -696,6 +703,60 @@ func runProcessLogs(parsed args) error {
 	return client.Exec(project.VM.Name, command)
 }
 
+func runStart(parsed args) error {
+	if len(parsed.positionals) > 1 {
+		return errors.New("usage: start [project-name]")
+	}
+	if parsed.projectPath != "" {
+		return errors.New("start uses the project registry; --project is not supported")
+	}
+
+	projectName := ""
+	if len(parsed.positionals) == 1 {
+		projectName = parsed.positionals[0]
+	}
+	projectName, project, projectConfig, err := resolvedRuntimeProject(parsed, projectName)
+	if err != nil {
+		return err
+	}
+	if projectConfig.VM.Provider != "auto" && projectConfig.VM.Provider != "lima" {
+		return fmt.Errorf("unsupported VM provider for start: %s", projectConfig.VM.Provider)
+	}
+
+	client := lima.NewClient(nil)
+	if err := ensureProjectVM(client, projectConfig); err != nil {
+		return err
+	}
+	return startProjectServices(client, projectName, project, projectConfig)
+}
+
+func runStop(parsed args) error {
+	if len(parsed.positionals) > 1 {
+		return errors.New("usage: stop [project-name] [--vm]")
+	}
+	if parsed.projectPath != "" {
+		return errors.New("stop uses the project registry; --project is not supported")
+	}
+
+	projectName := ""
+	if len(parsed.positionals) == 1 {
+		projectName = parsed.positionals[0]
+	}
+	projectName, project, projectConfig, err := resolvedRuntimeProject(parsed, projectName)
+	if err != nil {
+		return err
+	}
+
+	client := lima.NewClient(nil)
+	if err := stopProjectServices(client, projectName, project, projectConfig); err != nil {
+		return err
+	}
+	if !shouldStopProjectVM(project, parsed.stopVM) {
+		return reportVMLeftRunning(client, project)
+	}
+	return stopProjectVM(client, project)
+}
+
 type statusRow struct {
 	Current bool
 	Project string
@@ -826,6 +887,106 @@ func resolvedRuntimeProject(parsed args, name string) (string, registry.Project,
 		projectConfig.VMName = project.VM.Name
 	}
 	return projectName, project, projectConfig, nil
+}
+
+func ensureProjectVM(client lima.Client, projectConfig config.ProjectConfig) error {
+	result, err := client.Setup(projectConfig)
+	if err != nil {
+		return err
+	}
+	if result.Created {
+		fmt.Printf("VM created: %s\n", result.VMName)
+		return nil
+	}
+
+	instance, err := client.Status(projectConfig.VMName)
+	if err != nil {
+		return err
+	}
+	if strings.EqualFold(instance.Status, "Running") {
+		fmt.Printf("VM already running: %s\n", projectConfig.VMName)
+		return nil
+	}
+	if err := client.Start(projectConfig.VMName); err != nil {
+		return err
+	}
+	fmt.Printf("VM started: %s\n", projectConfig.VMName)
+	return nil
+}
+
+func startProjectServices(client lima.Client, projectName string, project registry.Project, projectConfig config.ProjectConfig) error {
+	for _, service := range projectConfig.Services {
+		command, err := process.StartCommand(process.ServiceFromConfig(projectName, projectConfig, service))
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Starting service: %s\n", service.Name)
+		if err := client.Exec(project.VM.Name, command); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func stopProjectServices(client lima.Client, projectName string, project registry.Project, projectConfig config.ProjectConfig) error {
+	instances, err := client.List()
+	if err != nil {
+		return err
+	}
+	vmState := findVMState(instances, project.VM.Name)
+	if !strings.EqualFold(vmState, "Running") {
+		fmt.Printf("VM not running: %s\n", project.VM.Name)
+		return nil
+	}
+
+	for index := len(projectConfig.Services) - 1; index >= 0; index-- {
+		service := projectConfig.Services[index]
+		command, err := process.StopCommand(projectName, service.Name)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Stopping service: %s\n", service.Name)
+		if err := client.Exec(project.VM.Name, command); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func stopProjectVM(client lima.Client, project registry.Project) error {
+	instances, err := client.List()
+	if err != nil {
+		return err
+	}
+	vmState := findVMState(instances, project.VM.Name)
+	if vmState == "missing" {
+		fmt.Printf("VM missing: %s\n", project.VM.Name)
+		return nil
+	}
+	if strings.EqualFold(vmState, "Stopped") {
+		fmt.Printf("VM already stopped: %s\n", project.VM.Name)
+		return nil
+	}
+	if err := client.Stop(project.VM.Name); err != nil {
+		return err
+	}
+	fmt.Printf("VM stopped: %s\n", project.VM.Name)
+	return nil
+}
+
+func reportVMLeftRunning(client lima.Client, project registry.Project) error {
+	instances, err := client.List()
+	if err != nil {
+		return err
+	}
+	if strings.EqualFold(findVMState(instances, project.VM.Name), "Running") {
+		fmt.Printf("VM left running: %s (%s)\n", project.VM.Name, project.VM.Mode)
+	}
+	return nil
+}
+
+func shouldStopProjectVM(project registry.Project, force bool) bool {
+	return force || project.VM.Mode == "dedicated"
 }
 
 func processActionTarget(positionals []string) (string, string, error) {
@@ -1020,6 +1181,8 @@ Usage:
   go run ./cmd/yard process start [project-name] <service-name>
   go run ./cmd/yard process stop [project-name] <service-name>
   go run ./cmd/yard process logs [project-name] <service-name> [--tail <lines>] [--follow]
+  go run ./cmd/yard start [project-name]
+  go run ./cmd/yard stop [project-name] [--vm]
   go run ./cmd/yard status [project-name]
   go run ./cmd/yard setup [project-name]
 
@@ -1030,6 +1193,8 @@ Commands:
   vm       Manage Lima VMs.
   exec     Execute a command in the current or named project's VM.
   process  Manage configured dev service processes in the project VM.
+  start    Start the project VM and configured services.
+  stop     Stop configured services, and dedicated VMs by default.
   status   Show projects and VM state in a table.
   setup    Create the project VM if it does not exist.
 `, version)

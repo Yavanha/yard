@@ -184,6 +184,32 @@ func TestParseSetupArgs(t *testing.T) {
 	assertEqual(t, parsed.registryPath, "/tmp/config.yaml")
 }
 
+func TestParseStartArgs(t *testing.T) {
+	t.Parallel()
+
+	parsed, err := parseArgs([]string{"start", "example", "--registry", "/tmp/config.yaml"})
+	if err != nil {
+		t.Fatalf("parseArgs returned error: %v", err)
+	}
+
+	assertEqual(t, parsed.command, "start")
+	assertEqual(t, parsed.positionals[0], "example")
+	assertEqual(t, parsed.registryPath, "/tmp/config.yaml")
+}
+
+func TestParseStopVMArgs(t *testing.T) {
+	t.Parallel()
+
+	parsed, err := parseArgs([]string{"stop", "example", "--vm"})
+	if err != nil {
+		t.Fatalf("parseArgs returned error: %v", err)
+	}
+
+	assertEqual(t, parsed.command, "stop")
+	assertEqual(t, parsed.positionals[0], "example")
+	assertEqual(t, parsed.stopVM, true)
+}
+
 func TestParseProcessStartArgs(t *testing.T) {
 	t.Parallel()
 
@@ -505,6 +531,14 @@ func TestWriteProcessRows(t *testing.T) {
 			t.Fatalf("expected output to contain %q:\n%s", expected, got)
 		}
 	}
+}
+
+func TestShouldStopProjectVM(t *testing.T) {
+	t.Parallel()
+
+	assertEqual(t, shouldStopProjectVM(registry.Project{VM: registry.VM{Mode: "dedicated"}}, false), true)
+	assertEqual(t, shouldStopProjectVM(registry.Project{VM: registry.VM{Mode: "shared"}}, false), false)
+	assertEqual(t, shouldStopProjectVM(registry.Project{VM: registry.VM{Mode: "shared"}}, true), true)
 }
 
 func TestParseRejectsMissingFlagValue(t *testing.T) {
