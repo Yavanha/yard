@@ -46,6 +46,7 @@ _Avoid_: credentials GitHub dans la VM
 - **Start** reutilise les ressources deja demarrees au lieu de dupliquer ou detruire des processus.
 - Un **Process** expose au minimum un etat, un PID ou identifiant equivalent, des ports et des logs consultables depuis le **Host Controller**.
 - Un **Repository Source** tourne cote host et reutilise les credentials host existants.
+- Les commandes `yard vm ...` pilotent une **Dev VM** existante; la creation/provision restent des actions de setup separees.
 
 ## Example dialogue
 
