@@ -21,7 +21,7 @@ Une VM de developpement isolee qui execute les outils runtime sans credentials p
 _Avoid_: host, devcontainer
 
 **Environment**:
-L'ensemble actif forme par un **Project**, une **Dev VM** et les services/processus necessaires au developpement.
+L'ensemble actif forme par un ou plusieurs **Projects**, une **Dev VM** et les services/processus necessaires au developpement.
 _Avoid_: stack quand on parle aussi de VM et processus app
 
 **Start**:
@@ -32,15 +32,20 @@ _Avoid_: reset, rebuild, restart
 Un service de developpement lance pour un **Project**, supervise dans la **Dev VM** et observable depuis le **Host Controller**.
 _Avoid_: terminal bloque, commande ad hoc
 
+**Repository Source**:
+Un fournisseur host-side qui permet de decouvrir et recuperer des repos accessibles, par exemple GitHub via `gh`.
+_Avoid_: credentials GitHub dans la VM
+
 ## Relationships
 
 - Un **Host Controller** pilote un ou plusieurs **Projects**.
 - Un **Project** est declare dans un **Project Registry** local a la machine hote.
 - Le **Project Registry** vit par defaut dans `~/.config/devctl/config.yaml`.
 - Un **Project** peut utiliser une **Dev VM** partagee ou dediee selon `vm.mode` dans le **Project Registry**.
-- Un **Environment** appartient a exactement un **Project**.
+- Un **Environment** peut etre mono-project maintenant et multi-project plus tard pour composer front, backend, workers ou services dans des repos differents.
 - **Start** reutilise les ressources deja demarrees au lieu de dupliquer ou detruire des processus.
 - Un **Process** expose au minimum un etat, un PID ou identifiant equivalent, des ports et des logs consultables depuis le **Host Controller**.
+- Un **Repository Source** tourne cote host et reutilise les credentials host existants.
 
 ## Example dialogue
 
@@ -49,6 +54,12 @@ _Avoid_: terminal bloque, commande ad hoc
 >
 > **Dev:** "Quand `start` lance le serveur app, est-ce que mon terminal reste bloque ?"
 > **Domain expert:** "Non. Le **Process** est supervise dans la **Dev VM**, et le **Host Controller** permet de voir son etat et ses logs."
+>
+> **Dev:** "Si le backend est dans un autre repo, est-ce encore le meme projet ?"
+> **Domain expert:** "Non. Chaque repo reste un **Project**; plus tard un **Environment** pourra composer plusieurs **Projects**."
+>
+> **Dev:** "Pour recuperer un repo d'une organisation GitHub, est-ce que la VM doit avoir mes credentials GitHub ?"
+> **Domain expert:** "Non. GitHub est une **Repository Source** cote host, probablement via `gh`, puis `devctl` clone/synchronise sans persister de credentials dans la **Dev VM**."
 
 ## Flagged ambiguities
 
@@ -56,6 +67,8 @@ _Avoid_: terminal bloque, commande ad hoc
 - Les noms comme `lmdlp` sont des exemples de **Project**, jamais des cas hardcodes dans `devctl`.
 - `start` signifie demarrage idempotent et non destructif; les actions destructives appartiennent a `reset` ou a des commandes explicitement confirmees.
 - "process ouvert" signifie un **Process** observable et controle par `devctl status/logs`, pas un terminal interactif laisse ouvert.
+- "backend" n'est pas un type special de **Project**; c'est souvent un **Process** dans le meme repo, ou un autre **Project** compose plus tard dans un **Environment** multi-project.
+- "GitHub org" est une capacite de **Repository Source**, pas une hypothese hardcodee dans le coeur de `devctl`.
 
 ## Registry shape
 

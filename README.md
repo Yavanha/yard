@@ -162,3 +162,8 @@ go run ./cmd/devctl use example
 ```
 
 Le registre vit par defaut dans `~/.config/devctl/config.yaml`. Les choix locaux comme `vm.mode: shared|dedicated` restent dans ce registre, pas dans `.devctl.yml`.
+
+Notes de cadrage:
+- `Project` reste un repo enregistre. Un backend separe sera donc un autre `Project`.
+- Un futur `Environment` pourra composer plusieurs `Projects` pour front, backend, workers ou services.
+- La decouverte GitHub/orgs doit rester cote host, probablement via `gh`, pour reutiliser les credentials locaux sans les persister dans la VM.
