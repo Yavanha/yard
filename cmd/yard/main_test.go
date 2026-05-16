@@ -1,6 +1,11 @@
 package main
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+
+	"yard/internal/registry"
+)
 
 func TestParseProjectAddArgs(t *testing.T) {
 	t.Parallel()
@@ -38,6 +43,74 @@ func TestParseUseArgs(t *testing.T) {
 	assertEqual(t, parsed.command, "use")
 	assertEqual(t, parsed.positionals[0], "example")
 	assertEqual(t, parsed.registryPath, "/tmp/config.yaml")
+}
+
+func TestParseConfigNamedProjectArg(t *testing.T) {
+	t.Parallel()
+
+	parsed, err := parseArgs([]string{"config", "example", "--registry", "/tmp/config.yaml"})
+	if err != nil {
+		t.Fatalf("parseArgs returned error: %v", err)
+	}
+
+	assertEqual(t, parsed.command, "config")
+	assertEqual(t, parsed.positionals[0], "example")
+	assertEqual(t, parsed.registryPath, "/tmp/config.yaml")
+}
+
+func TestResolvedConfigPathUsesDirectProjectPath(t *testing.T) {
+	t.Parallel()
+
+	resolved, err := resolvedConfigPath(args{projectPath: "/tmp/example/.devctl.yml"})
+	if err != nil {
+		t.Fatalf("resolvedConfigPath returned error: %v", err)
+	}
+	assertEqual(t, resolved, "/tmp/example/.devctl.yml")
+}
+
+func TestResolvedConfigPathUsesCurrentRegistryProject(t *testing.T) {
+	t.Parallel()
+
+	registryPath := filepath.Join(t.TempDir(), "config.yaml")
+	reg, err := registry.New().Add("example", registry.Project{Path: "/tmp/example"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Save(registryPath, reg); err != nil {
+		t.Fatal(err)
+	}
+
+	resolved, err := resolvedConfigPath(args{registryPath: registryPath})
+	if err != nil {
+		t.Fatalf("resolvedConfigPath returned error: %v", err)
+	}
+	assertEqual(t, resolved, "/tmp/example/.devctl.yml")
+}
+
+func TestResolvedConfigPathUsesNamedRegistryProject(t *testing.T) {
+	t.Parallel()
+
+	registryPath := filepath.Join(t.TempDir(), "config.yaml")
+	reg, err := registry.New().Add("front", registry.Project{Path: "/tmp/front"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg, err = reg.Add("api", registry.Project{Path: "/tmp/api"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Save(registryPath, reg); err != nil {
+		t.Fatal(err)
+	}
+
+	resolved, err := resolvedConfigPath(args{
+		positionals:  []string{"api"},
+		registryPath: registryPath,
+	})
+	if err != nil {
+		t.Fatalf("resolvedConfigPath returned error: %v", err)
+	}
+	assertEqual(t, resolved, "/tmp/api/.devctl.yml")
 }
 
 func TestParseRejectsMissingFlagValue(t *testing.T) {

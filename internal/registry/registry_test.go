@@ -47,6 +47,51 @@ func TestUseRejectsUnknownProject(t *testing.T) {
 	}
 }
 
+func TestResolveUsesCurrentProject(t *testing.T) {
+	t.Parallel()
+
+	reg, err := New().Add("example", Project{Path: "/tmp/example"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	name, project, err := reg.Resolve("")
+	if err != nil {
+		t.Fatalf("Resolve returned error: %v", err)
+	}
+	assertEqual(t, name, "example")
+	assertEqual(t, project.Path, "/tmp/example")
+}
+
+func TestResolveUsesNamedProject(t *testing.T) {
+	t.Parallel()
+
+	reg, err := New().Add("example", Project{Path: "/tmp/example"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg, err = reg.Add("api", Project{Path: "/tmp/api"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	name, project, err := reg.Resolve("api")
+	if err != nil {
+		t.Fatalf("Resolve returned error: %v", err)
+	}
+	assertEqual(t, name, "api")
+	assertEqual(t, project.Path, "/tmp/api")
+}
+
+func TestResolveRejectsMissingCurrentProject(t *testing.T) {
+	t.Parallel()
+
+	_, _, err := New().Resolve("")
+	if err == nil {
+		t.Fatal("expected missing current project to fail")
+	}
+}
+
 func TestParseRegistry(t *testing.T) {
 	t.Parallel()
 

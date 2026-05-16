@@ -161,6 +161,8 @@ Registre projets host:
 go run ./cmd/yard project add example /path/to/repo
 go run ./cmd/yard project list
 go run ./cmd/yard use example
+go run ./cmd/yard config
+go run ./cmd/yard config example
 ```
 
 Le registre vit par defaut dans `~/.config/yard/config.yaml`. Les choix locaux comme `vm.mode: shared|dedicated` restent dans ce registre, pas dans `.devctl.yml`.

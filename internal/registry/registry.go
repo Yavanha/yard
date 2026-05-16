@@ -100,6 +100,21 @@ func (reg Registry) Use(name string) (Registry, error) {
 	return reg, nil
 }
 
+func (reg Registry) Resolve(name string) (string, Project, error) {
+	if name == "" {
+		if reg.CurrentProject == "" {
+			return "", Project{}, errors.New("no current project configured. Run: yard use <name>")
+		}
+		name = reg.CurrentProject
+	}
+
+	project, ok := reg.Projects[name]
+	if !ok {
+		return "", Project{}, fmt.Errorf("unknown project: %s", name)
+	}
+	return name, project, nil
+}
+
 func (reg Registry) ProjectNames() []string {
 	names := make([]string, 0, len(reg.Projects))
 	for name := range reg.Projects {

@@ -119,7 +119,12 @@ func runConfig(parsed args) error {
 		return err
 	}
 
-	loaded, err := config.Load(parsed.projectPath, workDir)
+	projectPath, err := resolvedConfigPath(parsed)
+	if err != nil {
+		return err
+	}
+
+	loaded, err := config.Load(projectPath, workDir)
 	if err != nil {
 		return err
 	}
@@ -127,6 +132,37 @@ func runConfig(parsed args) error {
 	encoder := json.NewEncoder(os.Stdout)
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(loaded)
+}
+
+func resolvedConfigPath(parsed args) (string, error) {
+	if parsed.projectPath != "" {
+		if len(parsed.positionals) > 0 {
+			return "", errors.New("config accepts either a project name or --project, not both")
+		}
+		return parsed.projectPath, nil
+	}
+	if len(parsed.positionals) > 1 {
+		return "", errors.New("usage: config [project-name] [--project <path>]")
+	}
+
+	path, err := resolvedRegistryPath(parsed)
+	if err != nil {
+		return "", err
+	}
+	reg, err := registry.Load(path)
+	if err != nil {
+		return "", err
+	}
+
+	name := ""
+	if len(parsed.positionals) == 1 {
+		name = parsed.positionals[0]
+	}
+	_, project, err := reg.Resolve(name)
+	if err != nil {
+		return "", err
+	}
+	return project.Config, nil
 }
 
 func runProject(parsed args) error {
@@ -242,7 +278,7 @@ func printHelp() {
 
 Usage:
   go run ./cmd/yard --help
-  go run ./cmd/yard config [--project <path>]
+  go run ./cmd/yard config [project-name] [--project <path>]
   go run ./cmd/yard project add <name> <path> [--config <path>] [--vm-mode shared|dedicated] [--vm-name <name>]
   go run ./cmd/yard project list
   go run ./cmd/yard use <name>
