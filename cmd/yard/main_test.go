@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"yard/internal/provider/lima"
 	"yard/internal/registry"
 )
 
@@ -83,6 +86,18 @@ func TestParseConfigNamedProjectArg(t *testing.T) {
 	assertEqual(t, parsed.command, "config")
 	assertEqual(t, parsed.positionals[0], "example")
 	assertEqual(t, parsed.registryPath, "/tmp/config.yaml")
+}
+
+func TestParseStatusArgs(t *testing.T) {
+	t.Parallel()
+
+	parsed, err := parseArgs([]string{"status", "example"})
+	if err != nil {
+		t.Fatalf("parseArgs returned error: %v", err)
+	}
+
+	assertEqual(t, parsed.command, "status")
+	assertEqual(t, parsed.positionals[0], "example")
 }
 
 func TestResolvedConfigPathUsesDirectProjectPath(t *testing.T) {
@@ -202,6 +217,92 @@ func TestResolvedVMNameFallsBackToLiteralVMName(t *testing.T) {
 		t.Fatalf("resolvedVMName returned error: %v", err)
 	}
 	assertEqual(t, resolved, "raw-vm")
+}
+
+func TestBuildStatusRows(t *testing.T) {
+	t.Parallel()
+
+	reg, err := registry.New().Add("front", registry.Project{
+		Path: "/tmp/front",
+		VM:   registry.VM{Name: "front-vm"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg, err = reg.Add("api", registry.Project{
+		Path: "/tmp/api",
+		VM:   registry.VM{Name: "api-vm"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg, err = reg.Use("api")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := buildStatusRows(reg, []lima.Instance{
+		{Name: "front-vm", Status: "Running"},
+	}, "")
+	if err != nil {
+		t.Fatalf("buildStatusRows returned error: %v", err)
+	}
+
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(rows))
+	}
+	assertEqual(t, rows[0].Project, "api")
+	assertEqual(t, rows[0].Current, true)
+	assertEqual(t, rows[0].VMState, "missing")
+	assertEqual(t, rows[1].Project, "front")
+	assertEqual(t, rows[1].VMState, "Running")
+}
+
+func TestBuildStatusRowsFiltersProject(t *testing.T) {
+	t.Parallel()
+
+	reg, err := registry.New().Add("front", registry.Project{Path: "/tmp/front"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg, err = reg.Add("api", registry.Project{Path: "/tmp/api"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := buildStatusRows(reg, nil, "api")
+	if err != nil {
+		t.Fatalf("buildStatusRows returned error: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+	assertEqual(t, rows[0].Project, "api")
+}
+
+func TestWriteStatusRows(t *testing.T) {
+	t.Parallel()
+
+	var output bytes.Buffer
+	err := writeStatusRows(&output, []statusRow{{
+		Current: true,
+		Project: "api",
+		VM:      "api-vm",
+		VMState: "Running",
+		VMMode:  "dedicated",
+		Config:  "/tmp/api/.devctl.yml",
+		Path:    "/tmp/api",
+	}})
+	if err != nil {
+		t.Fatalf("writeStatusRows returned error: %v", err)
+	}
+
+	got := output.String()
+	for _, expected := range []string{"CURRENT", "PROJECT", "VM_STATE", "*", "api", "api-vm", "Running"} {
+		if !strings.Contains(got, expected) {
+			t.Fatalf("expected output to contain %q:\n%s", expected, got)
+		}
+	}
 }
 
 func TestParseRejectsMissingFlagValue(t *testing.T) {

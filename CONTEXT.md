@@ -47,6 +47,7 @@ _Avoid_: credentials GitHub dans la VM
 - Un **Process** expose au minimum un etat, un PID ou identifiant equivalent, des ports et des logs consultables depuis le **Host Controller**.
 - Un **Repository Source** tourne cote host et reutilise les credentials host existants.
 - Les commandes `yard vm ...` pilotent une **Dev VM** existante; la creation/provision restent des actions de setup separees.
+- `yard status` affiche une vue tableau dense des **Projects** et de l'etat des **Dev VMs**, style `docker ps`.
 
 ## Example dialogue
 

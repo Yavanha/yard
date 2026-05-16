@@ -168,6 +168,8 @@ go run ./cmd/yard vm status example
 go run ./cmd/yard vm start example
 go run ./cmd/yard vm stop example
 go run ./cmd/yard exec example -- uname -a
+go run ./cmd/yard status
+go run ./cmd/yard status example
 ```
 
 Le registre vit par defaut dans `~/.config/yard/config.yaml`. Les choix locaux comme `vm.mode: shared|dedicated` restent dans ce registre, pas dans `.devctl.yml`.

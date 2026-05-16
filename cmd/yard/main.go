@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"text/tabwriter"
@@ -57,6 +58,8 @@ func run(argv []string) error {
 		return runVM(parsed)
 	case "exec":
 		return runExec(parsed)
+	case "status":
+		return runStatus(parsed)
 	default:
 		return fmt.Errorf("unknown command: %s", parsed.command)
 	}
@@ -429,6 +432,104 @@ func runExec(parsed args) error {
 	return client.Exec(project.VM.Name, parsed.execCommand)
 }
 
+type statusRow struct {
+	Current bool
+	Project string
+	VM      string
+	VMState string
+	VMMode  string
+	Config  string
+	Path    string
+}
+
+func runStatus(parsed args) error {
+	if len(parsed.positionals) > 1 {
+		return errors.New("usage: status [project-name]")
+	}
+
+	path, err := resolvedRegistryPath(parsed)
+	if err != nil {
+		return err
+	}
+	reg, err := registry.Load(path)
+	if err != nil {
+		return err
+	}
+
+	client := lima.NewClient(nil)
+	instances, err := client.List()
+	if err != nil {
+		return err
+	}
+
+	filter := ""
+	if len(parsed.positionals) == 1 {
+		filter = parsed.positionals[0]
+	}
+	rows, err := buildStatusRows(reg, instances, filter)
+	if err != nil {
+		return err
+	}
+	return writeStatusRows(os.Stdout, rows)
+}
+
+func buildStatusRows(reg registry.Registry, instances []lima.Instance, filter string) ([]statusRow, error) {
+	byVM := map[string]lima.Instance{}
+	for _, instance := range instances {
+		byVM[instance.Name] = instance
+	}
+
+	names := reg.ProjectNames()
+	if filter != "" {
+		if _, ok := reg.Projects[filter]; !ok {
+			return nil, fmt.Errorf("unknown project: %s", filter)
+		}
+		names = []string{filter}
+	}
+
+	rows := make([]statusRow, 0, len(names))
+	for _, name := range names {
+		project := reg.Projects[name]
+		vmState := "missing"
+		if instance, ok := byVM[project.VM.Name]; ok {
+			vmState = instance.Status
+		}
+		rows = append(rows, statusRow{
+			Current: reg.CurrentProject == name,
+			Project: name,
+			VM:      project.VM.Name,
+			VMState: vmState,
+			VMMode:  project.VM.Mode,
+			Config:  project.Config,
+			Path:    project.Path,
+		})
+	}
+	return rows, nil
+}
+
+func writeStatusRows(output io.Writer, rows []statusRow) error {
+	writer := tabwriter.NewWriter(output, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(writer, "CURRENT\tPROJECT\tVM\tVM_STATE\tVM_MODE\tCONFIG\tPATH")
+	for _, row := range rows {
+		current := ""
+		if row.Current {
+			current = "*"
+		}
+		fmt.Fprintf(
+			writer,
+			"%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			current,
+			row.Project,
+			row.VM,
+			row.VMState,
+			row.VMMode,
+			row.Config,
+			row.Path,
+		)
+	}
+	return writer.Flush()
+}
+
 func resolvedRegistryPath(parsed args) (string, error) {
 	if parsed.registryPath != "" {
 		return parsed.registryPath, nil
@@ -495,6 +596,7 @@ Usage:
   go run ./cmd/yard vm stop [project-or-vm]
   go run ./cmd/yard vm exec [project-or-vm] -- <command>
   go run ./cmd/yard exec [project-name] -- <command>
+  go run ./cmd/yard status [project-name]
 
 Commands:
   config   Print resolved project config as JSON.
@@ -502,5 +604,6 @@ Commands:
   use      Set the current project in the host project registry.
   vm       Manage Lima VMs.
   exec     Execute a command in the current or named project's VM.
+  status   Show projects and VM state in a table.
 `, version)
 }
