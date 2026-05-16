@@ -27,10 +27,24 @@ type args struct {
 	projectPath  string
 	registryPath string
 	configPath   string
+	repoURL      string
+	repoDir      string
 	vmMode       string
 	vmName       string
+	vmProvider   string
+	vmUser       string
+	vmType       string
+	cpus         int
+	memory       string
+	disk         string
+	serviceName  string
+	serviceCmd   string
+	serviceDir   string
+	servicePort  int
 	tailLines    int
 	follow       bool
+	yes          bool
+	force        bool
 	stopVM       bool
 	execCommand  []string
 	help         bool
@@ -61,6 +75,8 @@ func run(argv []string) error {
 		return runProject(parsed)
 	case "use":
 		return runUse(parsed)
+	case "init":
+		return runInit(parsed)
 	case "vm":
 		return runVM(parsed)
 	case "exec":
@@ -110,6 +126,18 @@ func parseArgs(argv []string) (args, error) {
 			}
 			parsed.configPath = argv[index+1]
 			index++
+		case "--repo":
+			if index+1 >= len(argv) {
+				return args{}, errors.New("--repo requires a value")
+			}
+			parsed.repoURL = argv[index+1]
+			index++
+		case "--repo-dir":
+			if index+1 >= len(argv) {
+				return args{}, errors.New("--repo-dir requires a path")
+			}
+			parsed.repoDir = argv[index+1]
+			index++
 		case "--vm-mode":
 			if index+1 >= len(argv) {
 				return args{}, errors.New("--vm-mode requires a value")
@@ -121,6 +149,74 @@ func parseArgs(argv []string) (args, error) {
 				return args{}, errors.New("--vm-name requires a value")
 			}
 			parsed.vmName = argv[index+1]
+			index++
+		case "--vm-provider":
+			if index+1 >= len(argv) {
+				return args{}, errors.New("--vm-provider requires a value")
+			}
+			parsed.vmProvider = argv[index+1]
+			index++
+		case "--vm-user":
+			if index+1 >= len(argv) {
+				return args{}, errors.New("--vm-user requires a value")
+			}
+			parsed.vmUser = argv[index+1]
+			index++
+		case "--vm-type":
+			if index+1 >= len(argv) {
+				return args{}, errors.New("--vm-type requires a value")
+			}
+			parsed.vmType = argv[index+1]
+			index++
+		case "--cpus":
+			if index+1 >= len(argv) {
+				return args{}, errors.New("--cpus requires a value")
+			}
+			cpus, err := strconv.Atoi(argv[index+1])
+			if err != nil || cpus <= 0 {
+				return args{}, errors.New("--cpus requires a positive integer")
+			}
+			parsed.cpus = cpus
+			index++
+		case "--memory":
+			if index+1 >= len(argv) {
+				return args{}, errors.New("--memory requires a value")
+			}
+			parsed.memory = argv[index+1]
+			index++
+		case "--disk":
+			if index+1 >= len(argv) {
+				return args{}, errors.New("--disk requires a value")
+			}
+			parsed.disk = argv[index+1]
+			index++
+		case "--service":
+			if index+1 >= len(argv) {
+				return args{}, errors.New("--service requires a value")
+			}
+			parsed.serviceName = argv[index+1]
+			index++
+		case "--command":
+			if index+1 >= len(argv) {
+				return args{}, errors.New("--command requires a value")
+			}
+			parsed.serviceCmd = argv[index+1]
+			index++
+		case "--workdir":
+			if index+1 >= len(argv) {
+				return args{}, errors.New("--workdir requires a value")
+			}
+			parsed.serviceDir = argv[index+1]
+			index++
+		case "--port":
+			if index+1 >= len(argv) {
+				return args{}, errors.New("--port requires a value")
+			}
+			port, err := strconv.Atoi(argv[index+1])
+			if err != nil || port <= 0 || port > 65535 {
+				return args{}, errors.New("--port requires an integer between 1 and 65535")
+			}
+			parsed.servicePort = port
 			index++
 		case "--tail":
 			if index+1 >= len(argv) {
@@ -136,6 +232,10 @@ func parseArgs(argv []string) (args, error) {
 			parsed.follow = true
 		case "--vm":
 			parsed.stopVM = true
+		case "--yes", "-y":
+			parsed.yes = true
+		case "--force":
+			parsed.force = true
 		default:
 			if len(value) > 0 && value[0] == '-' {
 				return args{}, fmt.Errorf("unknown flag: %s", value)
@@ -1171,6 +1271,7 @@ Usage:
   go run ./cmd/yard project add <name> <path> [--config <path>] [--vm-mode shared|dedicated] [--vm-name <name>]
   go run ./cmd/yard project list
   go run ./cmd/yard use <name>
+  go run ./cmd/yard init [project-name] [--yes] [--force]
   go run ./cmd/yard vm list
   go run ./cmd/yard vm status [project-or-vm]
   go run ./cmd/yard vm start [project-or-vm]
@@ -1190,6 +1291,7 @@ Commands:
   config   Print resolved project config as JSON.
   project  Manage the host project registry.
   use      Set the current project in the host project registry.
+  init     Create a project .devctl.yml.
   vm       Manage Lima VMs.
   exec     Execute a command in the current or named project's VM.
   process  Manage configured dev service processes in the project VM.

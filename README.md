@@ -169,6 +169,8 @@ go run ./cmd/yard project add
 go run ./cmd/yard project add example /path/to/repo
 go run ./cmd/yard project list
 go run ./cmd/yard use example
+go run ./cmd/yard init example
+go run ./cmd/yard init example --yes --config /path/to/repo/.devctl.yml
 go run ./cmd/yard config
 go run ./cmd/yard config example
 go run ./cmd/yard vm list
@@ -196,4 +198,5 @@ Notes de cadrage:
 - Un futur `Environment` pourra composer plusieurs `Projects` pour front, backend, workers ou services.
 - Dans un meme repo, declarer plusieurs `services` vendor-neutral, par exemple `web`, `api` ou `worker`; Yard ne depend pas de Nest, PHP, Vite ou Supabase pour les piloter.
 - `start` cree/demarre la VM puis lance les services sans doubler les processus deja ouverts; `stop` coupe les services et n'eteint une VM partagee qu'avec `--vm`.
+- `init` genere une config projet sans secrets ni adapters obligatoires; `--yes` donne le mode non interactif et `--force` est requis pour ecraser.
 - La decouverte GitHub/orgs doit rester cote host, probablement via `gh`, pour reutiliser les credentials locaux sans les persister dans la VM.

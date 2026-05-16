@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"yard/internal/config"
 	"yard/internal/process"
 	"yard/internal/prompt"
 	"yard/internal/provider/lima"
@@ -182,6 +183,164 @@ func TestParseSetupArgs(t *testing.T) {
 	assertEqual(t, parsed.command, "setup")
 	assertEqual(t, parsed.positionals[0], "example")
 	assertEqual(t, parsed.registryPath, "/tmp/config.yaml")
+}
+
+func TestParseInitArgs(t *testing.T) {
+	t.Parallel()
+
+	parsed, err := parseArgs([]string{
+		"init",
+		"api",
+		"--yes",
+		"--force",
+		"--config",
+		"/tmp/api.yml",
+		"--repo",
+		"git@github.com:acme/api.git",
+		"--repo-dir",
+		"/home/ubuntu/workspaces/api",
+		"--vm-name",
+		"api-dev",
+		"--vm-provider",
+		"auto",
+		"--vm-user",
+		"ubuntu",
+		"--vm-type",
+		"vz",
+		"--cpus",
+		"4",
+		"--memory",
+		"6G",
+		"--disk",
+		"50G",
+		"--service",
+		"web",
+		"--command",
+		"pnpm dev",
+		"--workdir",
+		".",
+		"--port",
+		"3000",
+	})
+	if err != nil {
+		t.Fatalf("parseArgs returned error: %v", err)
+	}
+
+	assertEqual(t, parsed.command, "init")
+	assertEqual(t, parsed.positionals[0], "api")
+	assertEqual(t, parsed.yes, true)
+	assertEqual(t, parsed.force, true)
+	assertEqual(t, parsed.configPath, "/tmp/api.yml")
+	assertEqual(t, parsed.repoURL, "git@github.com:acme/api.git")
+	assertEqual(t, parsed.vmProvider, "auto")
+	assertEqual(t, parsed.serviceName, "web")
+	assertEqual(t, parsed.serviceCmd, "pnpm dev")
+	assertEqual(t, parsed.servicePort, 3000)
+}
+
+func TestRunInitWritesConfigNonInteractive(t *testing.T) {
+	t.Parallel()
+
+	configPath := filepath.Join(t.TempDir(), ".devctl.yml")
+	err := runInit(args{
+		positionals: []string{"api"},
+		configPath:  configPath,
+		yes:         true,
+		repoURL:     "git@github.com:acme/api.git",
+		serviceName: "web",
+		serviceCmd:  "go run ./cmd/api",
+		servicePort: 8080,
+		vmName:      "api-dev",
+		vmProvider:  "auto",
+		vmType:      "vz",
+		cpus:        2,
+		memory:      "4G",
+		disk:        "40G",
+		repoDir:     "/home/ubuntu/workspaces/api",
+		serviceDir:  ".",
+	})
+	if err != nil {
+		t.Fatalf("runInit returned error: %v", err)
+	}
+
+	content, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile returned error: %v", err)
+	}
+	for _, expected := range []string{
+		`project: "api"`,
+		`repo: "git@github.com:acme/api.git"`,
+		`vm_name: "api-dev"`,
+		`  cpus: 2`,
+		`  web: 8080`,
+		`    command: "go run ./cmd/api"`,
+	} {
+		if !strings.Contains(string(content), expected) {
+			t.Fatalf("expected config to contain %q:\n%s", expected, string(content))
+		}
+	}
+}
+
+func TestRunInitRejectsExistingConfigWithoutForce(t *testing.T) {
+	t.Parallel()
+
+	configPath := filepath.Join(t.TempDir(), ".devctl.yml")
+	if err := os.WriteFile(configPath, []byte("project: existing\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	err := runInit(args{
+		positionals: []string{"api"},
+		configPath:  configPath,
+		yes:         true,
+	})
+	if err == nil {
+		t.Fatal("expected existing config to fail")
+	}
+}
+
+func TestRunInitInteractive(t *testing.T) {
+	t.Parallel()
+
+	configPath := filepath.Join(t.TempDir(), ".devctl.yml")
+	var output bytes.Buffer
+	input := strings.Join([]string{
+		"api",
+		"git@github.com:acme/api.git",
+		"",
+		"",
+		"",
+		"",
+		"",
+		"2",
+		"4G",
+		"40G",
+		"web",
+		"go run ./cmd/api",
+		".",
+		"8080",
+		"yes",
+		"",
+	}, "\n")
+
+	err := runInitInteractive(configPath, config.DefaultScaffoldOptions("example"), prompt.New(strings.NewReader(input), &output))
+	if err != nil {
+		t.Fatalf("runInitInteractive returned error: %v", err)
+	}
+
+	content, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile returned error: %v", err)
+	}
+	if !strings.Contains(string(content), `project: "api"`) {
+		t.Fatalf("expected config to use prompted project:\n%s", string(content))
+	}
+	if !strings.Contains(string(content), `vm_name: "api-dev"`) {
+		t.Fatalf("expected VM name default to follow prompted project:\n%s", string(content))
+	}
+	if !strings.Contains(output.String(), "Config preview:") {
+		t.Fatalf("expected preview output, got:\n%s", output.String())
+	}
 }
 
 func TestParseStartArgs(t *testing.T) {
