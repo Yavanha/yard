@@ -160,6 +160,7 @@ Objectif: porter les commandes une par une, avec tests, avant de remplacer le bi
 Registre projets host:
 
 ```bash
+go run ./cmd/yard project add
 go run ./cmd/yard project add example /path/to/repo
 go run ./cmd/yard project list
 go run ./cmd/yard use example
@@ -176,6 +177,7 @@ go run ./cmd/yard setup example
 ```
 
 Le registre vit par defaut dans `~/.config/yard/config.yaml`. Les choix locaux comme `vm.mode: shared|dedicated` restent dans ce registre, pas dans `.devctl.yml`.
+Sans arguments, `project add` lance un wizard et affiche le YAML du registre avant ecriture.
 
 Notes de cadrage:
 - `Project` reste un repo enregistre. Un backend separe sera donc un autre `Project`.

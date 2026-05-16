@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 
 	"yard/internal/config"
+	"yard/internal/prompt"
 	"yard/internal/provider/lima"
 	"yard/internal/registry"
 )
@@ -200,8 +202,11 @@ func runProject(parsed args) error {
 }
 
 func runProjectAdd(parsed args) error {
+	if len(parsed.positionals) == 0 {
+		return runProjectAddInteractive(parsed, prompt.New(os.Stdin, os.Stdout))
+	}
 	if len(parsed.positionals) != 2 {
-		return errors.New("usage: project add <name> <path>")
+		return errors.New("usage: project add [<name> <path>]")
 	}
 
 	path, err := resolvedRegistryPath(parsed)
@@ -229,6 +234,101 @@ func runProjectAdd(parsed args) error {
 	}
 
 	fmt.Printf("added project %s\n", parsed.positionals[0])
+	return nil
+}
+
+func runProjectAddInteractive(parsed args, prompter prompt.Prompter) error {
+	defaultPath, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+
+	projectPath, err := prompter.Ask("Repo path", defaultPath, true)
+	if err != nil {
+		return err
+	}
+	absProjectPath, err := filepath.Abs(projectPath)
+	if err != nil {
+		return err
+	}
+
+	defaultName := filepath.Base(absProjectPath)
+	name, err := prompter.Ask("Project alias", defaultName, true)
+	if err != nil {
+		return err
+	}
+
+	defaultConfig := filepath.Join(absProjectPath, config.FileName)
+	configPath := parsed.configPath
+	if configPath == "" {
+		configPath, err = prompter.Ask("Config path", defaultConfig, false)
+		if err != nil {
+			return err
+		}
+	}
+
+	vmMode := parsed.vmMode
+	if vmMode == "" {
+		vmMode, err = prompter.Ask("VM mode (shared/dedicated)", registry.DefaultVMMode, true)
+		if err != nil {
+			return err
+		}
+	}
+	if vmMode != "shared" && vmMode != "dedicated" {
+		return fmt.Errorf("unsupported vm.mode: %s", vmMode)
+	}
+
+	defaultVMName := registry.DefaultVMName
+	if vmMode == "dedicated" {
+		defaultVMName = filepath.Base(absProjectPath) + "-dev"
+	}
+	vmName := parsed.vmName
+	if vmName == "" {
+		vmName, err = prompter.Ask("VM name", defaultVMName, true)
+		if err != nil {
+			return err
+		}
+	}
+
+	path, err := resolvedRegistryPath(parsed)
+	if err != nil {
+		return err
+	}
+	reg, err := registry.Load(path)
+	if err != nil {
+		return err
+	}
+
+	next, err := reg.Add(name, registry.Project{
+		Path:   absProjectPath,
+		Config: configPath,
+		VM: registry.VM{
+			Mode: vmMode,
+			Name: vmName,
+		},
+	})
+	if err != nil {
+		return err
+	}
+
+	fmt.Fprintln(prompter.Writer())
+	fmt.Fprintln(prompter.Writer(), "Registry preview:")
+	fmt.Fprint(prompter.Writer(), string(registry.Marshal(next)))
+
+	confirmed, err := prompter.Confirm("Write registry", true)
+	if err != nil {
+		return err
+	}
+	if !confirmed {
+		fmt.Fprintln(prompter.Writer(), "Aborted.")
+		return nil
+	}
+
+	if err := registry.Save(path, next); err != nil {
+		return err
+	}
+
+	fmt.Printf("added project %s\n", name)
 	return nil
 }
 
@@ -655,6 +755,7 @@ func printHelp() {
 Usage:
   go run ./cmd/yard --help
   go run ./cmd/yard config [project-name] [--project <path>]
+  go run ./cmd/yard project add
   go run ./cmd/yard project add <name> <path> [--config <path>] [--vm-mode shared|dedicated] [--vm-name <name>]
   go run ./cmd/yard project list
   go run ./cmd/yard use <name>

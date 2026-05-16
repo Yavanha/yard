@@ -54,6 +54,7 @@ _Avoid_: dependance coeur obligatoire
 - Les commandes `yard vm ...` pilotent une **Dev VM** existante; la creation/provision restent des actions de setup separees.
 - `yard status` affiche une vue tableau dense des **Projects** et de l'etat des **Dev VMs**, style `docker ps`.
 - `yard setup` cree la **Dev VM** manquante de maniere idempotente; le provisionnement logiciel restera une etape separee.
+- Les commandes interactives doivent toujours conserver un mode non interactif equivalent via arguments ou fichiers.
 
 ## Example dialogue
 

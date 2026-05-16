@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"yard/internal/prompt"
 	"yard/internal/provider/lima"
 	"yard/internal/registry"
 )
@@ -34,6 +35,74 @@ func TestParseProjectAddArgs(t *testing.T) {
 	assertEqual(t, parsed.positionals[1], "/tmp/example")
 	assertEqual(t, parsed.vmMode, "dedicated")
 	assertEqual(t, parsed.vmName, "example-vm")
+}
+
+func TestRunProjectAddInteractive(t *testing.T) {
+	t.Parallel()
+
+	registryPath := filepath.Join(t.TempDir(), "config.yaml")
+	repoPath := filepath.Join(t.TempDir(), "repo")
+	if err := os.MkdirAll(repoPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var output bytes.Buffer
+	input := strings.Join([]string{
+		repoPath,
+		"api",
+		"",
+		"dedicated",
+		"api-dev",
+		"yes",
+		"",
+	}, "\n")
+
+	err := runProjectAddInteractive(args{registryPath: registryPath}, prompt.New(strings.NewReader(input), &output))
+	if err != nil {
+		t.Fatalf("runProjectAddInteractive returned error: %v", err)
+	}
+
+	reg, err := registry.Load(registryPath)
+	if err != nil {
+		t.Fatalf("registry.Load returned error: %v", err)
+	}
+	project := reg.Projects["api"]
+	assertEqual(t, project.Path, repoPath)
+	assertEqual(t, project.Config, filepath.Join(repoPath, ".devctl.yml"))
+	assertEqual(t, project.VM.Mode, "dedicated")
+	assertEqual(t, project.VM.Name, "api-dev")
+	if !strings.Contains(output.String(), "Registry preview:") {
+		t.Fatalf("expected preview output, got:\n%s", output.String())
+	}
+}
+
+func TestRunProjectAddInteractiveAbort(t *testing.T) {
+	t.Parallel()
+
+	registryPath := filepath.Join(t.TempDir(), "config.yaml")
+	repoPath := filepath.Join(t.TempDir(), "repo")
+	if err := os.MkdirAll(repoPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var output bytes.Buffer
+	input := strings.Join([]string{
+		repoPath,
+		"api",
+		"",
+		"shared",
+		"",
+		"no",
+		"",
+	}, "\n")
+
+	err := runProjectAddInteractive(args{registryPath: registryPath}, prompt.New(strings.NewReader(input), &output))
+	if err != nil {
+		t.Fatalf("runProjectAddInteractive returned error: %v", err)
+	}
+	if _, err := os.Stat(registryPath); err == nil {
+		t.Fatal("expected registry file not to be written")
+	}
 }
 
 func TestParseUseArgs(t *testing.T) {
