@@ -139,3 +139,16 @@ devctl down --project .devctl.yml --supabase-all --vm
 ## Etat
 
 V1 locale en cours: orchestration Lima, provision Ansible, sync Git VM, devcontainer, app dev avec injection Infisical runtime.
+
+## Migration Go V2
+
+La CLI Node reste la reference fonctionnelle pendant la migration.
+
+Premier slice Go:
+
+```bash
+go run ./cmd/devctl config --project examples/lmdlp.devctl.yml
+go test ./...
+```
+
+Objectif: porter les commandes une par une, avec tests, avant de remplacer le binaire Node.
