@@ -5,6 +5,7 @@ vm_user: ubuntu
 docker_users:
   - ubuntu
 devcontainer_cli_version: "0.80.2"
+supabase_cli_enabled: false
 supabase_cli_version: "2.98.2"
 devctl_cache_dir: /var/cache/devctl
 hidepid_enabled: true

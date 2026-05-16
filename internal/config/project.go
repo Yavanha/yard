@@ -7,11 +7,12 @@ import (
 )
 
 type ProjectConfig struct {
-	VMName    string
-	VMUser    string
-	VM        VMConfig
-	Resources ResourceConfig
-	Ports     []PortMapping
+	VMName          string
+	VMUser          string
+	VM              VMConfig
+	Resources       ResourceConfig
+	Ports           []PortMapping
+	SupabaseEnabled bool
 }
 
 type VMConfig struct {
@@ -66,7 +67,8 @@ func ProjectConfigFromMap(values map[string]any) (ProjectConfig, error) {
 			Memory: memory,
 			Disk:   disk,
 		},
-		Ports: ports,
+		Ports:           ports,
+		SupabaseEnabled: nestedBool(values, "supabase", "enabled", false),
 	}, nil
 }
 
@@ -100,6 +102,18 @@ func nestedString(values map[string]any, section string, key string, fallback st
 		return fallback
 	}
 	return fmt.Sprint(value)
+}
+
+func nestedBool(values map[string]any, section string, key string, fallback bool) bool {
+	value, ok := nestedValue(values, section, key)
+	if !ok || value == nil {
+		return fallback
+	}
+	parsed, ok := value.(bool)
+	if !ok {
+		return fallback
+	}
+	return parsed
 }
 
 func requiredNestedInt(values map[string]any, section string, key string) (int, error) {

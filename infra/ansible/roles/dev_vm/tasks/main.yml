@@ -8,14 +8,19 @@
 - name: Resolve package architecture names
   ansible.builtin.set_fact:
     docker_apt_arch: "{{ docker_apt_arch_map.get(ansible_facts['architecture'], ansible_facts['architecture']) }}"
-    supabase_cli_arch: "{{ supabase_cli_arch_map.get(ansible_facts['architecture'], ansible_facts['architecture']) }}"
     dev_vm_docker_users: "{{ (docker_users + [vm_user]) | unique }}"
+
+- name: Resolve Supabase package architecture
+  ansible.builtin.set_fact:
+    supabase_cli_arch: "{{ supabase_cli_arch_map.get(ansible_facts['architecture'], ansible_facts['architecture']) }}"
+  when: supabase_cli_enabled | bool
 
 - name: Resolve Supabase release asset names
   ansible.builtin.set_fact:
     supabase_cli_deb: "supabase_{{ supabase_cli_version }}_linux_{{ supabase_cli_arch }}.deb"
     supabase_cli_checksums: "supabase_{{ supabase_cli_version }}_checksums.txt"
     supabase_cli_release_url: "https://github.com/supabase/cli/releases/download/v{{ supabase_cli_version }}"
+  when: supabase_cli_enabled | bool
 
 - name: Remove conflicting distro Docker packages
   ansible.builtin.apt:
@@ -141,6 +146,7 @@
     owner: root
     group: root
     mode: "0755"
+  when: supabase_cli_enabled | bool
 
 - name: Download Supabase CLI checksums
   ansible.builtin.get_url:
@@ -149,6 +155,7 @@
     owner: root
     group: root
     mode: "0644"
+  when: supabase_cli_enabled | bool
 
 - name: Download pinned Supabase CLI deb
   ansible.builtin.get_url:
@@ -157,17 +164,20 @@
     owner: root
     group: root
     mode: "0644"
+  when: supabase_cli_enabled | bool
 
 - name: Verify Supabase CLI checksum
   ansible.builtin.shell: "grep -F {{ supabase_cli_deb | quote }} {{ supabase_cli_checksums | quote }} | sha256sum -c -"
   args:
     chdir: "{{ devctl_cache_dir }}"
   changed_when: false
+  when: supabase_cli_enabled | bool
 
 - name: Install pinned Supabase CLI
   ansible.builtin.apt:
     deb: "{{ devctl_cache_dir }}/{{ supabase_cli_deb }}"
     state: present
+  when: supabase_cli_enabled | bool
 
 - name: Create workspace root
   ansible.builtin.file:

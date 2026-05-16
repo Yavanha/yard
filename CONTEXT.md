@@ -36,6 +36,10 @@ _Avoid_: terminal bloque, commande ad hoc
 Un fournisseur host-side qui permet de decouvrir et recuperer des repos accessibles, par exemple GitHub via `gh`.
 _Avoid_: credentials GitHub dans la VM
 
+**Adapter**:
+Une integration optionnelle activee par un **Project** pour un outil specifique comme Supabase, Infisical, Vite ou un backend particulier.
+_Avoid_: dependance coeur obligatoire
+
 ## Relationships
 
 - Un **Host Controller** pilote un ou plusieurs **Projects**.
@@ -46,6 +50,7 @@ _Avoid_: credentials GitHub dans la VM
 - **Start** reutilise les ressources deja demarrees au lieu de dupliquer ou detruire des processus.
 - Un **Process** expose au minimum un etat, un PID ou identifiant equivalent, des ports et des logs consultables depuis le **Host Controller**.
 - Un **Repository Source** tourne cote host et reutilise les credentials host existants.
+- Le coeur de Yard reste vendor-neutral; les outils specifiques front/backend/secrets/services passent par des **Adapters**.
 - Les commandes `yard vm ...` pilotent une **Dev VM** existante; la creation/provision restent des actions de setup separees.
 - `yard status` affiche une vue tableau dense des **Projects** et de l'etat des **Dev VMs**, style `docker ps`.
 - `yard setup` cree la **Dev VM** manquante de maniere idempotente; le provisionnement logiciel restera une etape separee.
@@ -72,6 +77,7 @@ _Avoid_: credentials GitHub dans la VM
 - "process ouvert" signifie un **Process** observable et controle par `yard status/logs`, pas un terminal interactif laisse ouvert.
 - "backend" n'est pas un type special de **Project**; c'est souvent un **Process** dans le meme repo, ou un autre **Project** compose plus tard dans un **Environment** multi-project.
 - "GitHub org" est une capacite de **Repository Source**, pas une hypothese hardcodee dans le coeur de Yard.
+- Supabase, Infisical et Vite sont des **Adapters** optionnels, pas des preconditions pour tous les **Projects**.
 
 ## Registry shape
 

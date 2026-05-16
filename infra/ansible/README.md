@@ -7,7 +7,7 @@ La VM est creee par `devctl up` avec Lima. Ansible se connecte ensuite via le fi
 V1 cible:
 - Docker Engine officiel dans la VM.
 - Devcontainer CLI dans `/opt/devtools`.
-- Supabase CLI versionnee depuis GitHub Releases avec verification checksum.
+- Supabase CLI versionnee depuis GitHub Releases avec verification checksum, seulement si l'adapter Supabase est active.
 - User `ubuntu` dans le groupe `docker`.
 - `/proc` durci avec `hidepid=2` si compatible.
 - Dossier `/home/ubuntu/workspaces`.

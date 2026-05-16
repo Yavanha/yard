@@ -14,6 +14,8 @@ resources:
   cpus: 4
   memory: 6G
   disk: 50G
+supabase:
+  enabled: true
 ports:
   app: 3000
   api: 8080
@@ -34,6 +36,7 @@ ports:
 	assertEqual(t, project.Resources.CPUs, 4)
 	assertEqual(t, project.Resources.Memory, "6G")
 	assertEqual(t, project.Resources.Disk, "50G")
+	assertEqual(t, project.SupabaseEnabled, true)
 	assertEqual(t, project.Ports[0].Name, "app")
 	assertEqual(t, project.Ports[0].Port, 3000)
 	assertEqual(t, project.Ports[1].Name, "api")

@@ -17,7 +17,7 @@ import { fileURLToPath } from "node:url";
 
 const VERSION = "0.1.0";
 const CONFIG_FILE = ".devctl.yml";
-const BASE_REQUIRED_TOOLS = ["ansible-playbook", "ssh", "ssh-add", "infisical", "git", "pnpm"];
+const BASE_REQUIRED_TOOLS = ["ansible-playbook", "ssh", "ssh-add", "git", "pnpm"];
 const UBUNTU_IMAGE = "24.04";
 const LIMA_UBUNTU_IMAGE_TEMPLATE = "template:_images/ubuntu-24.04";
 const DEFAULT_ANSIBLE_PLAYBOOK = "infra/ansible/playbooks/dev-vm.yml";
@@ -245,9 +245,10 @@ function resolveVmProvider(config) {
   return "unsupported";
 }
 
-function requiredToolsForProvider(provider) {
+function requiredToolsForProvider(provider, config = {}) {
   const providerTools = provider === "lima" ? ["limactl"] : [];
-  return [...providerTools, ...BASE_REQUIRED_TOOLS];
+  const adapterTools = isInfisicalConfigured(config) ? ["infisical"] : [];
+  return [...providerTools, ...BASE_REQUIRED_TOOLS, ...adapterTools];
 }
 
 function ensureSupportedProvider(provider) {
@@ -258,9 +259,9 @@ function ensureSupportedProvider(provider) {
   throw new Error(`Unsupported dev VM provider: ${provider}`);
 }
 
-function ensureProviderTools(provider) {
+function ensureProviderTools(provider, config = {}) {
   ensureSupportedProvider(provider);
-  for (const tool of requiredToolsForProvider(provider)) ensureTool(tool);
+  for (const tool of requiredToolsForProvider(provider, config)) ensureTool(tool);
 }
 
 function installHintsFor(hostPlatform, missing) {
@@ -303,7 +304,7 @@ function runDoctor(args) {
   const hostPlatform = getHostPlatform();
   const loaded = args.project ? loadConfig(args) : null;
   const provider = resolveVmProvider(loaded?.config ?? {});
-  const requiredTools = requiredToolsForProvider(provider);
+  const requiredTools = requiredToolsForProvider(provider, loaded?.config ?? {});
 
   console.log(`host    ${hostPlatform} ${arch()}`);
   console.log(`provider ${provider}`);
@@ -424,6 +425,10 @@ function getInfisicalProjectId(config) {
   return config.infisical?.project_id ?? config.infisical?.projectId ?? null;
 }
 
+function isInfisicalConfigured(config) {
+  return config.infisical !== undefined && config.infisical !== null;
+}
+
 function isSupabaseEnabled(config) {
   return config.supabase?.enabled === true;
 }
@@ -530,7 +535,7 @@ Run: ssh-add`);
 
 function buildSshArgs(config) {
   const provider = resolveVmProvider(config);
-  ensureProviderTools(provider);
+  ensureProviderTools(provider, config);
   ensureTool("ssh");
 
   const vmName = getVmName(config);
@@ -577,7 +582,7 @@ export PATH="/opt/devtools/bin:/usr/local/bin:$PATH"
 function runUp(args) {
   const { config } = loadConfig(args);
   const provider = resolveVmProvider(config);
-  ensureProviderTools(provider);
+  ensureProviderTools(provider, config);
   const vmName = getVmName(config);
 
   if (provider !== "lima") {
@@ -666,7 +671,7 @@ rm -f "$tmp"
 function runSshConfig(args) {
   const { config } = loadConfig(args);
   const provider = resolveVmProvider(config);
-  ensureProviderTools(provider);
+  ensureProviderTools(provider, config);
   const vmName = getVmName(config);
 
   if (provider !== "lima") {
@@ -679,7 +684,7 @@ function runSshConfig(args) {
 function runProvision(args) {
   const { config } = loadConfig(args);
   const provider = resolveVmProvider(config);
-  ensureProviderTools(provider);
+  ensureProviderTools(provider, config);
   const vmName = getVmName(config);
   const vmUser = getVmUser(config);
   const playbookPath = resolve(CLI_ROOT, DEFAULT_ANSIBLE_PLAYBOOK);
@@ -713,7 +718,15 @@ function runProvision(args) {
   try {
     runCommandChecked(
       "ansible-playbook",
-      ["-i", inventoryPath, playbookPath, "--extra-vars", `vm_user=${vmUser}`],
+      [
+        "-i",
+        inventoryPath,
+        playbookPath,
+        "--extra-vars",
+        `vm_user=${vmUser}`,
+        "--extra-vars",
+        `supabase_cli_enabled=${isSupabaseEnabled(config) ? "true" : "false"}`
+      ],
       {
         env: {
           ...process.env,
@@ -948,7 +961,7 @@ fi
   if (!stopVm) return;
 
   const provider = resolveVmProvider(config);
-  ensureProviderTools(provider);
+  ensureProviderTools(provider, config);
   if (provider !== "lima") {
     throw new Error(`VM stop is not implemented for provider: ${provider}`);
   }

@@ -56,8 +56,10 @@ Commandes MVP:
 Prerequis macOS:
 
 ```bash
-brew install lima ansible infisical/get-cli/infisical pnpm git
+brew install lima ansible pnpm git
 ```
+
+Installer les CLIs d'adapters seulement pour les projets qui les utilisent, par exemple Infisical cote host ou Supabase CLI cote VM.
 
 V1 locale:
 
