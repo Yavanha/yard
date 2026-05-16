@@ -67,6 +67,22 @@ func StatusCommand(projectName string, serviceName string) ([]string, error) {
 	return []string{"sh", "-lc", statusScript(projectName, serviceName)}, nil
 }
 
+func LogsCommand(projectName string, serviceName string, tailLines int, follow bool) ([]string, error) {
+	if err := validateName("project", projectName); err != nil {
+		return nil, err
+	}
+	if err := validateName("service", serviceName); err != nil {
+		return nil, err
+	}
+	if tailLines <= 0 {
+		tailLines = 120
+	}
+	if tailLines > 10000 {
+		return nil, errors.New("tail lines must be <= 10000")
+	}
+	return []string{"sh", "-lc", logsScript(projectName, serviceName, tailLines, follow)}, nil
+}
+
 func ParseStatusOutput(projectName string, service config.ServiceConfig, output []byte) State {
 	state := State{
 		Project: projectName,
@@ -238,6 +254,23 @@ func statusScript(projectName string, serviceName string) string {
 		"printf 'state=%s\\n' \"$state\"",
 		"printf 'pid=%s\\n' \"$pid\"",
 		"printf 'log=%s\\n' \"$log_file\"",
+	}, "\n")
+}
+
+func logsScript(projectName string, serviceName string, tailLines int, follow bool) string {
+	tailArgs := fmt.Sprintf("-n %d", tailLines)
+	if follow {
+		tailArgs += " -F"
+	}
+
+	return strings.Join([]string{
+		"set -u",
+		fmt.Sprintf("log_file=\"$HOME/.yard/processes/%s/%s/stdout.log\"", projectName, serviceName),
+		"if [ ! -f \"$log_file\" ]; then",
+		"  printf 'no logs yet: %s\\n' \"$log_file\"",
+		"  exit 0",
+		"fi",
+		"tail " + tailArgs + " \"$log_file\"",
 	}, "\n")
 }
 

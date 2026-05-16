@@ -178,6 +178,7 @@ go run ./cmd/yard vm stop example
 go run ./cmd/yard exec example -- uname -a
 go run ./cmd/yard process list example
 go run ./cmd/yard process start example app
+go run ./cmd/yard process logs example app --tail 80
 go run ./cmd/yard process stop example app
 go run ./cmd/yard status
 go run ./cmd/yard status example

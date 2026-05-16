@@ -70,6 +70,35 @@ func TestParseStatusOutput(t *testing.T) {
 	assertEqual(t, state.Log, "/tmp/log")
 }
 
+func TestLogsCommandBuildsTailScript(t *testing.T) {
+	t.Parallel()
+
+	command, err := LogsCommand("api", "web", 80, true)
+	if err != nil {
+		t.Fatalf("LogsCommand returned error: %v", err)
+	}
+
+	script := command[2]
+	for _, expected := range []string{
+		"$HOME/.yard/processes/api/web/stdout.log",
+		"tail -n 80 -F \"$log_file\"",
+		"no logs yet",
+	} {
+		if !strings.Contains(script, expected) {
+			t.Fatalf("expected script to contain %q:\n%s", expected, script)
+		}
+	}
+}
+
+func TestLogsCommandRejectsLargeTail(t *testing.T) {
+	t.Parallel()
+
+	_, err := LogsCommand("api", "web", 10001, false)
+	if err == nil {
+		t.Fatal("expected large tail to fail")
+	}
+}
+
 func TestStopCommandRejectsUnsafeNames(t *testing.T) {
 	t.Parallel()
 

@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 
@@ -28,6 +29,8 @@ type args struct {
 	configPath   string
 	vmMode       string
 	vmName       string
+	tailLines    int
+	follow       bool
 	execCommand  []string
 	help         bool
 }
@@ -114,6 +117,18 @@ func parseArgs(argv []string) (args, error) {
 			}
 			parsed.vmName = argv[index+1]
 			index++
+		case "--tail":
+			if index+1 >= len(argv) {
+				return args{}, errors.New("--tail requires a value")
+			}
+			tailLines, err := strconv.Atoi(argv[index+1])
+			if err != nil || tailLines <= 0 {
+				return args{}, errors.New("--tail requires a positive integer")
+			}
+			parsed.tailLines = tailLines
+			index++
+		case "--follow", "-f":
+			parsed.follow = true
 		default:
 			if len(value) > 0 && value[0] == '-' {
 				return args{}, fmt.Errorf("unknown flag: %s", value)
@@ -545,9 +560,11 @@ func runProcess(parsed args) error {
 		return runProcessStart(parsed)
 	case "stop":
 		return runProcessStop(parsed)
+	case "logs":
+		return runProcessLogs(parsed)
 	default:
 		if parsed.subcommand == "" {
-			return errors.New("process requires a subcommand: list, start, or stop")
+			return errors.New("process requires a subcommand: list, start, stop, or logs")
 		}
 		return fmt.Errorf("unknown process subcommand: %s", parsed.subcommand)
 	}
@@ -645,6 +662,32 @@ func runProcessStop(parsed args) error {
 	}
 
 	command, err := process.StopCommand(projectName, serviceName)
+	if err != nil {
+		return err
+	}
+
+	client := lima.NewClient(nil)
+	return client.Exec(project.VM.Name, command)
+}
+
+func runProcessLogs(parsed args) error {
+	projectName, serviceName, err := processActionTarget(parsed.positionals)
+	if err != nil {
+		return err
+	}
+	if parsed.projectPath != "" {
+		return errors.New("process logs uses the project registry; --project is not supported")
+	}
+
+	projectName, project, projectConfig, err := resolvedRuntimeProject(parsed, projectName)
+	if err != nil {
+		return err
+	}
+	if _, err := findService(projectConfig.Services, serviceName); err != nil {
+		return err
+	}
+
+	command, err := process.LogsCommand(projectName, serviceName, parsed.tailLines, parsed.follow)
 	if err != nil {
 		return err
 	}
@@ -976,6 +1019,7 @@ Usage:
   go run ./cmd/yard process list [project-name]
   go run ./cmd/yard process start [project-name] <service-name>
   go run ./cmd/yard process stop [project-name] <service-name>
+  go run ./cmd/yard process logs [project-name] <service-name> [--tail <lines>] [--follow]
   go run ./cmd/yard status [project-name]
   go run ./cmd/yard setup [project-name]
 

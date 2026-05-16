@@ -199,6 +199,22 @@ func TestParseProcessStartArgs(t *testing.T) {
 	assertEqual(t, parsed.registryPath, "/tmp/config.yaml")
 }
 
+func TestParseProcessLogsArgs(t *testing.T) {
+	t.Parallel()
+
+	parsed, err := parseArgs([]string{"process", "logs", "api", "web", "--tail", "80", "--follow"})
+	if err != nil {
+		t.Fatalf("parseArgs returned error: %v", err)
+	}
+
+	assertEqual(t, parsed.command, "process")
+	assertEqual(t, parsed.subcommand, "logs")
+	assertEqual(t, parsed.positionals[0], "api")
+	assertEqual(t, parsed.positionals[1], "web")
+	assertEqual(t, parsed.tailLines, 80)
+	assertEqual(t, parsed.follow, true)
+}
+
 func TestProcessActionTarget(t *testing.T) {
 	t.Parallel()
 
