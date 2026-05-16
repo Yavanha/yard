@@ -1,7 +1,6 @@
 package config
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -83,7 +82,7 @@ func Load(projectPath string, workDir string) (Loaded, error) {
 
 func ParseSimpleYAML(content string) (map[string]any, error) {
 	root := map[string]any{}
-	section := ""
+	stack := []yamlFrame{{indent: -1, values: root}}
 
 	for lineNumber, rawLine := range strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n") {
 		line := stripInlineComment(rawLine)
@@ -91,38 +90,54 @@ func ParseSimpleYAML(content string) (map[string]any, error) {
 			continue
 		}
 
-		if !strings.HasPrefix(line, " ") {
-			key, value, ok := splitKeyValue(line)
-			if !ok {
-				return nil, unsupportedLineError(lineNumber, rawLine)
-			}
-			if strings.TrimSpace(value) == "" {
-				root[key] = map[string]any{}
-				section = key
-				continue
-			}
-			root[key] = coerceScalar(value)
-			section = ""
+		indent, ok := leadingSpaces(line)
+		if !ok || indent%2 != 0 {
+			return nil, unsupportedLineError(lineNumber, rawLine)
+		}
+		for len(stack) > 1 && stack[len(stack)-1].indent >= indent {
+			stack = stack[:len(stack)-1]
+		}
+		parent := stack[len(stack)-1]
+		if indent > parent.indent+2 {
+			return nil, unsupportedLineError(lineNumber, rawLine)
+		}
+
+		key, value, ok := splitKeyValue(strings.TrimLeft(line, " "))
+		if !ok {
+			return nil, unsupportedLineError(lineNumber, rawLine)
+		}
+
+		if strings.TrimSpace(value) == "" {
+			child := map[string]any{}
+			parent.values[key] = child
+			stack = append(stack, yamlFrame{indent: indent, values: child})
 			continue
 		}
 
-		if !strings.HasPrefix(line, "  ") || strings.HasPrefix(line, "   ") || section == "" {
-			return nil, unsupportedLineError(lineNumber, rawLine)
-		}
-
-		key, value, ok := splitKeyValue(strings.TrimPrefix(line, "  "))
-		if !ok {
-			return nil, unsupportedLineError(lineNumber, rawLine)
-		}
-
-		nested, ok := root[section].(map[string]any)
-		if !ok {
-			return nil, errors.New("parser state corrupted")
-		}
-		nested[key] = coerceScalar(value)
+		parent.values[key] = coerceScalar(value)
 	}
 
 	return root, nil
+}
+
+type yamlFrame struct {
+	indent int
+	values map[string]any
+}
+
+func leadingSpaces(line string) (int, bool) {
+	count := 0
+	for _, char := range line {
+		switch char {
+		case ' ':
+			count++
+		case '\t':
+			return 0, false
+		default:
+			return count, true
+		}
+	}
+	return count, true
 }
 
 func splitKeyValue(line string) (string, string, bool) {

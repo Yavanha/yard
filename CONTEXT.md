@@ -32,6 +32,10 @@ _Avoid_: reset, rebuild, restart
 Un service de developpement lance pour un **Project**, supervise dans la **Dev VM** et observable depuis le **Host Controller**.
 _Avoid_: terminal bloque, commande ad hoc
 
+**Service**:
+Une declaration vendor-neutral dans la config projet qui decrit une commande de dev a superviser comme **Process**.
+_Avoid_: adapter framework, container obligatoire
+
 **Repository Source**:
 Un fournisseur host-side qui permet de decouvrir et recuperer des repos accessibles, par exemple GitHub via `gh`.
 _Avoid_: credentials GitHub dans la VM
@@ -49,6 +53,7 @@ _Avoid_: dependance coeur obligatoire
 - Un **Environment** peut etre mono-project maintenant et multi-project plus tard pour composer front, backend, workers ou services dans des repos differents.
 - **Start** reutilise les ressources deja demarrees au lieu de dupliquer ou detruire des processus.
 - Un **Process** expose au minimum un etat, un PID ou identifiant equivalent, des ports et des logs consultables depuis le **Host Controller**.
+- Un **Service** peut representer un front, un backend, un worker ou tout autre serveur de dev dans le meme repo; si le backend vit dans un autre repo, il devient un autre **Project**.
 - Un **Repository Source** tourne cote host et reutilise les credentials host existants.
 - Le coeur de Yard reste vendor-neutral; les outils specifiques front/backend/secrets/services passent par des **Adapters**.
 - Les commandes `yard vm ...` pilotent une **Dev VM** existante; la creation/provision restent des actions de setup separees.
@@ -77,6 +82,7 @@ _Avoid_: dependance coeur obligatoire
 - `start` signifie demarrage idempotent et non destructif; les actions destructives appartiennent a `reset` ou a des commandes explicitement confirmees.
 - "process ouvert" signifie un **Process** observable et controle par `yard status/logs`, pas un terminal interactif laisse ouvert.
 - "backend" n'est pas un type special de **Project**; c'est souvent un **Process** dans le meme repo, ou un autre **Project** compose plus tard dans un **Environment** multi-project.
+- `services` decrit des commandes generiques; les choix NestJS, PHP, Vite, Supabase ou autres restent dans la commande/adapters, pas dans le coeur.
 - "GitHub org" est une capacite de **Repository Source**, pas une hypothese hardcodee dans le coeur de Yard.
 - Supabase, Infisical et Vite sont des **Adapters** optionnels, pas des preconditions pour tous les **Projects**.
 

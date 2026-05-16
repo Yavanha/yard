@@ -195,6 +195,25 @@ func (c Client) Exec(name string, command []string) error {
 	return c.Runner.Run("ssh", SSHArgs(instance, command)...)
 }
 
+func (c Client) ExecOutput(name string, command []string) ([]byte, error) {
+	if len(command) == 0 {
+		return nil, errors.New("exec requires a command")
+	}
+
+	instance, err := c.Status(name)
+	if err != nil {
+		return nil, err
+	}
+	if instance.SSHConfigFile == "" {
+		return nil, fmt.Errorf("VM has no SSH config file: %s", name)
+	}
+	if !strings.EqualFold(instance.Status, "Running") {
+		return nil, fmt.Errorf("VM is not running: %s. Run: yard vm start %s", name, name)
+	}
+
+	return c.Runner.Output("ssh", SSHArgs(instance, command)...)
+}
+
 func ParseList(content []byte) ([]Instance, error) {
 	decoder := json.NewDecoder(bytes.NewReader(content))
 	instances := []Instance{}

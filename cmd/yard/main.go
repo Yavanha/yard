@@ -11,6 +11,7 @@ import (
 	"text/tabwriter"
 
 	"yard/internal/config"
+	"yard/internal/process"
 	"yard/internal/prompt"
 	"yard/internal/provider/lima"
 	"yard/internal/registry"
@@ -60,6 +61,8 @@ func run(argv []string) error {
 		return runVM(parsed)
 	case "exec":
 		return runExec(parsed)
+	case "process":
+		return runProcess(parsed)
 	case "status":
 		return runStatus(parsed)
 	case "setup":
@@ -116,7 +119,7 @@ func parseArgs(argv []string) (args, error) {
 				return args{}, fmt.Errorf("unknown flag: %s", value)
 			}
 			if parsed.command != "" {
-				if parsed.subcommand == "" && (parsed.command == "project" || parsed.command == "vm") {
+				if parsed.subcommand == "" && (parsed.command == "project" || parsed.command == "vm" || parsed.command == "process") {
 					parsed.subcommand = value
 					continue
 				}
@@ -534,6 +537,122 @@ func runExec(parsed args) error {
 	return client.Exec(project.VM.Name, parsed.execCommand)
 }
 
+func runProcess(parsed args) error {
+	switch parsed.subcommand {
+	case "list":
+		return runProcessList(parsed)
+	case "start":
+		return runProcessStart(parsed)
+	case "stop":
+		return runProcessStop(parsed)
+	default:
+		if parsed.subcommand == "" {
+			return errors.New("process requires a subcommand: list, start, or stop")
+		}
+		return fmt.Errorf("unknown process subcommand: %s", parsed.subcommand)
+	}
+}
+
+func runProcessList(parsed args) error {
+	if len(parsed.positionals) > 1 {
+		return errors.New("usage: process list [project-name]")
+	}
+	if parsed.projectPath != "" {
+		return errors.New("process list uses the project registry; --project is not supported")
+	}
+
+	projectName := ""
+	if len(parsed.positionals) == 1 {
+		projectName = parsed.positionals[0]
+	}
+	projectName, project, projectConfig, err := resolvedRuntimeProject(parsed, projectName)
+	if err != nil {
+		return err
+	}
+
+	client := lima.NewClient(nil)
+	instances, err := client.List()
+	if err != nil {
+		return err
+	}
+
+	vmState := findVMState(instances, project.VM.Name)
+	rows := make([]process.State, 0, len(projectConfig.Services))
+	if !strings.EqualFold(vmState, "Running") {
+		status := processStatusFromVMState(vmState)
+		for _, service := range projectConfig.Services {
+			rows = append(rows, process.StaticState(projectName, service, status))
+		}
+		return writeProcessRows(os.Stdout, rows, project.VM.Name)
+	}
+
+	for _, service := range projectConfig.Services {
+		command, err := process.StatusCommand(projectName, service.Name)
+		if err != nil {
+			return err
+		}
+		output, err := client.ExecOutput(project.VM.Name, command)
+		if err != nil {
+			return err
+		}
+		rows = append(rows, process.ParseStatusOutput(projectName, service, output))
+	}
+	return writeProcessRows(os.Stdout, rows, project.VM.Name)
+}
+
+func runProcessStart(parsed args) error {
+	projectName, serviceName, err := processActionTarget(parsed.positionals)
+	if err != nil {
+		return err
+	}
+	if parsed.projectPath != "" {
+		return errors.New("process start uses the project registry; --project is not supported")
+	}
+
+	projectName, project, projectConfig, err := resolvedRuntimeProject(parsed, projectName)
+	if err != nil {
+		return err
+	}
+	service, err := findService(projectConfig.Services, serviceName)
+	if err != nil {
+		return err
+	}
+
+	command, err := process.StartCommand(process.ServiceFromConfig(projectName, projectConfig, service))
+	if err != nil {
+		return err
+	}
+
+	client := lima.NewClient(nil)
+	return client.Exec(project.VM.Name, command)
+}
+
+func runProcessStop(parsed args) error {
+	projectName, serviceName, err := processActionTarget(parsed.positionals)
+	if err != nil {
+		return err
+	}
+	if parsed.projectPath != "" {
+		return errors.New("process stop uses the project registry; --project is not supported")
+	}
+
+	projectName, project, projectConfig, err := resolvedRuntimeProject(parsed, projectName)
+	if err != nil {
+		return err
+	}
+	if _, err := findService(projectConfig.Services, serviceName); err != nil {
+		return err
+	}
+
+	command, err := process.StopCommand(projectName, serviceName)
+	if err != nil {
+		return err
+	}
+
+	client := lima.NewClient(nil)
+	return client.Exec(project.VM.Name, command)
+}
+
 type statusRow struct {
 	Current bool
 	Project string
@@ -639,6 +758,95 @@ func resolvedProjectConfig(parsed args) (config.ProjectConfig, error) {
 		projectConfig.VMName = registryVMName
 	}
 	return projectConfig, nil
+}
+
+func resolvedRuntimeProject(parsed args, name string) (string, registry.Project, config.ProjectConfig, error) {
+	workDir, err := os.Getwd()
+	if err != nil {
+		return "", registry.Project{}, config.ProjectConfig{}, err
+	}
+
+	projectName, project, err := resolvedRegistryProject(parsed, name)
+	if err != nil {
+		return "", registry.Project{}, config.ProjectConfig{}, err
+	}
+
+	loaded, err := config.Load(project.Config, workDir)
+	if err != nil {
+		return "", registry.Project{}, config.ProjectConfig{}, err
+	}
+	projectConfig, err := config.ProjectConfigFromMap(loaded.Config)
+	if err != nil {
+		return "", registry.Project{}, config.ProjectConfig{}, err
+	}
+	if project.VM.Name != "" {
+		projectConfig.VMName = project.VM.Name
+	}
+	return projectName, project, projectConfig, nil
+}
+
+func processActionTarget(positionals []string) (string, string, error) {
+	switch len(positionals) {
+	case 1:
+		return "", positionals[0], nil
+	case 2:
+		return positionals[0], positionals[1], nil
+	default:
+		return "", "", errors.New("usage: process <start|stop> [project-name] <service-name>")
+	}
+}
+
+func findService(services []config.ServiceConfig, name string) (config.ServiceConfig, error) {
+	for _, service := range services {
+		if service.Name == name {
+			return service, nil
+		}
+	}
+	return config.ServiceConfig{}, fmt.Errorf("unknown service: %s", name)
+}
+
+func findVMState(instances []lima.Instance, vmName string) string {
+	for _, instance := range instances {
+		if instance.Name == vmName {
+			return instance.Status
+		}
+	}
+	return "missing"
+}
+
+func processStatusFromVMState(vmState string) string {
+	normalized := strings.ToLower(strings.TrimSpace(vmState))
+	if normalized == "" {
+		normalized = "unknown"
+	}
+	return "vm_" + normalized
+}
+
+func writeProcessRows(output io.Writer, rows []process.State, vmName string) error {
+	writer := tabwriter.NewWriter(output, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(writer, "PROJECT\tSERVICE\tSTATUS\tPID\tPORT\tVM\tCOMMAND\tLOG")
+	for _, row := range rows {
+		fmt.Fprintf(
+			writer,
+			"%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			row.Project,
+			row.Service,
+			row.Status,
+			row.PID,
+			formatPort(row.Port),
+			vmName,
+			row.Command,
+			row.Log,
+		)
+	}
+	return writer.Flush()
+}
+
+func formatPort(port int) string {
+	if port <= 0 {
+		return "-"
+	}
+	return fmt.Sprint(port)
 }
 
 func buildStatusRows(reg registry.Registry, instances []lima.Instance, filter string) ([]statusRow, error) {
@@ -765,6 +973,9 @@ Usage:
   go run ./cmd/yard vm stop [project-or-vm]
   go run ./cmd/yard vm exec [project-or-vm] -- <command>
   go run ./cmd/yard exec [project-name] -- <command>
+  go run ./cmd/yard process list [project-name]
+  go run ./cmd/yard process start [project-name] <service-name>
+  go run ./cmd/yard process stop [project-name] <service-name>
   go run ./cmd/yard status [project-name]
   go run ./cmd/yard setup [project-name]
 
@@ -774,6 +985,7 @@ Commands:
   use      Set the current project in the host project registry.
   vm       Manage Lima VMs.
   exec     Execute a command in the current or named project's VM.
+  process  Manage configured dev service processes in the project VM.
   status   Show projects and VM state in a table.
   setup    Create the project VM if it does not exist.
 `, version)

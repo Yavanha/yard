@@ -16,6 +16,11 @@ infisical:
   default_env: dev
 app:
   dev_command: pnpm dev --host 0.0.0.0
+services:
+  app:
+    command: pnpm dev --host 0.0.0.0
+    workdir: .
+    port: 3000
 resources:
   cpus: 4
   memory: 6G

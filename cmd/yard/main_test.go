@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"yard/internal/process"
 	"yard/internal/prompt"
 	"yard/internal/provider/lima"
 	"yard/internal/registry"
@@ -181,6 +182,39 @@ func TestParseSetupArgs(t *testing.T) {
 	assertEqual(t, parsed.command, "setup")
 	assertEqual(t, parsed.positionals[0], "example")
 	assertEqual(t, parsed.registryPath, "/tmp/config.yaml")
+}
+
+func TestParseProcessStartArgs(t *testing.T) {
+	t.Parallel()
+
+	parsed, err := parseArgs([]string{"process", "start", "api", "web", "--registry", "/tmp/config.yaml"})
+	if err != nil {
+		t.Fatalf("parseArgs returned error: %v", err)
+	}
+
+	assertEqual(t, parsed.command, "process")
+	assertEqual(t, parsed.subcommand, "start")
+	assertEqual(t, parsed.positionals[0], "api")
+	assertEqual(t, parsed.positionals[1], "web")
+	assertEqual(t, parsed.registryPath, "/tmp/config.yaml")
+}
+
+func TestProcessActionTarget(t *testing.T) {
+	t.Parallel()
+
+	projectName, serviceName, err := processActionTarget([]string{"web"})
+	if err != nil {
+		t.Fatalf("processActionTarget returned error: %v", err)
+	}
+	assertEqual(t, projectName, "")
+	assertEqual(t, serviceName, "web")
+
+	projectName, serviceName, err = processActionTarget([]string{"api", "web"})
+	if err != nil {
+		t.Fatalf("processActionTarget returned error: %v", err)
+	}
+	assertEqual(t, projectName, "api")
+	assertEqual(t, serviceName, "web")
 }
 
 func TestResolvedConfigPathUsesDirectProjectPath(t *testing.T) {
@@ -426,6 +460,31 @@ func TestWriteStatusRows(t *testing.T) {
 
 	got := output.String()
 	for _, expected := range []string{"CURRENT", "PROJECT", "VM_STATE", "*", "api", "api-vm", "Running"} {
+		if !strings.Contains(got, expected) {
+			t.Fatalf("expected output to contain %q:\n%s", expected, got)
+		}
+	}
+}
+
+func TestWriteProcessRows(t *testing.T) {
+	t.Parallel()
+
+	var output bytes.Buffer
+	err := writeProcessRows(&output, []process.State{{
+		Project: "api",
+		Service: "web",
+		Status:  "running",
+		PID:     "1234",
+		Port:    3000,
+		Command: "pnpm dev",
+		Log:     "/home/ubuntu/.yard/processes/api/web/stdout.log",
+	}}, "api-vm")
+	if err != nil {
+		t.Fatalf("writeProcessRows returned error: %v", err)
+	}
+
+	got := output.String()
+	for _, expected := range []string{"PROJECT", "SERVICE", "STATUS", "api", "web", "running", "1234", "3000", "api-vm"} {
 		if !strings.Contains(got, expected) {
 			t.Fatalf("expected output to contain %q:\n%s", expected, got)
 		}

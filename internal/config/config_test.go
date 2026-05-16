@@ -30,6 +30,28 @@ resources:
 	assertEqual(t, resources["quoted"], "hello")
 }
 
+func TestParseSimpleYAMLParsesNestedMaps(t *testing.T) {
+	t.Parallel()
+
+	parsed, err := ParseSimpleYAML(`services:
+  api:
+    command: go run ./cmd/api
+    workdir: backend
+  web:
+    command: pnpm dev
+`)
+	if err != nil {
+		t.Fatalf("ParseSimpleYAML returned error: %v", err)
+	}
+
+	services := parsed["services"].(map[string]any)
+	api := services["api"].(map[string]any)
+	web := services["web"].(map[string]any)
+	assertEqual(t, api["command"], "go run ./cmd/api")
+	assertEqual(t, api["workdir"], "backend")
+	assertEqual(t, web["command"], "pnpm dev")
+}
+
 func TestParseSimpleYAMLRejectsUnsupportedLines(t *testing.T) {
 	t.Parallel()
 

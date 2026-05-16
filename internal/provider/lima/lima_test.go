@@ -157,6 +157,24 @@ func TestClientExecUsesSSH(t *testing.T) {
 	assertEqual(t, runner.runs[0][len(runner.runs[0])-1], "-a")
 }
 
+func TestClientExecOutputUsesSSH(t *testing.T) {
+	t.Parallel()
+
+	runner := &fakeRunner{
+		outputs: map[string][]byte{
+			"limactl list --format json alpha": []byte(`{"name":"alpha","status":"Running","sshConfigFile":"/tmp/alpha/ssh.config"}`),
+			"ssh -F /tmp/alpha/ssh.config -o ForwardAgent=yes -o ControlMaster=no -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=30 lima-alpha -- printf ok": []byte("ok"),
+		},
+	}
+	client := NewClient(runner)
+
+	output, err := client.ExecOutput("alpha", []string{"printf", "ok"})
+	if err != nil {
+		t.Fatalf("ExecOutput returned error: %v", err)
+	}
+	assertEqual(t, string(output), "ok")
+}
+
 func TestClientExecRejectsStoppedVM(t *testing.T) {
 	t.Parallel()
 

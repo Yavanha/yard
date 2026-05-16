@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"runtime"
 	"sort"
@@ -9,9 +10,11 @@ import (
 type ProjectConfig struct {
 	VMName          string
 	VMUser          string
+	RepoDir         string
 	VM              VMConfig
 	Resources       ResourceConfig
 	Ports           []PortMapping
+	Services        []ServiceConfig
 	SupabaseEnabled bool
 }
 
@@ -29,6 +32,13 @@ type ResourceConfig struct {
 type PortMapping struct {
 	Name string
 	Port int
+}
+
+type ServiceConfig struct {
+	Name    string
+	Command string
+	Workdir string
+	Port    int
 }
 
 func ProjectConfigFromMap(values map[string]any) (ProjectConfig, error) {
@@ -55,9 +65,15 @@ func ProjectConfigFromMap(values map[string]any) (ProjectConfig, error) {
 		return ProjectConfig{}, err
 	}
 
+	services, err := serviceConfigs(values, ports)
+	if err != nil {
+		return ProjectConfig{}, err
+	}
+
 	return ProjectConfig{
-		VMName: vmName,
-		VMUser: optionalString(values, "vm_user", "ubuntu"),
+		VMName:  vmName,
+		VMUser:  optionalString(values, "vm_user", "ubuntu"),
+		RepoDir: optionalString(values, "repo_dir", ""),
 		VM: VMConfig{
 			Provider: nestedString(values, "vm", "provider", "auto"),
 			Type:     nestedString(values, "vm", "type", defaultVMType()),
@@ -68,6 +84,7 @@ func ProjectConfigFromMap(values map[string]any) (ProjectConfig, error) {
 			Disk:   disk,
 		},
 		Ports:           ports,
+		Services:        services,
 		SupabaseEnabled: nestedBool(values, "supabase", "enabled", false),
 	}, nil
 }
@@ -170,6 +187,111 @@ func portMappings(values map[string]any) ([]PortMapping, error) {
 		return ports[left].Port < ports[right].Port
 	})
 	return ports, nil
+}
+
+func serviceConfigs(values map[string]any, ports []PortMapping) ([]ServiceConfig, error) {
+	portByName := map[string]int{}
+	for _, port := range ports {
+		portByName[port.Name] = port.Port
+	}
+
+	rawServices, ok := values["services"]
+	if !ok {
+		return legacyAppService(values, portByName)
+	}
+	servicesMap, ok := rawServices.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("config key services must be a map")
+	}
+
+	services := make([]ServiceConfig, 0, len(servicesMap))
+	for name, rawService := range servicesMap {
+		if err := validateServiceName(name); err != nil {
+			return nil, err
+		}
+		serviceMap, ok := rawService.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("config key services.%s must be a map", name)
+		}
+
+		command, err := requiredNestedMapString(serviceMap, "services."+name, "command")
+		if err != nil {
+			return nil, err
+		}
+		workdir := optionalMapString(serviceMap, "workdir", ".")
+		port, err := optionalMapPort(serviceMap, "services."+name, portByName[name])
+		if err != nil {
+			return nil, err
+		}
+
+		services = append(services, ServiceConfig{
+			Name:    name,
+			Command: command,
+			Workdir: workdir,
+			Port:    port,
+		})
+	}
+
+	sort.Slice(services, func(left int, right int) bool {
+		return services[left].Name < services[right].Name
+	})
+	return services, nil
+}
+
+func legacyAppService(values map[string]any, portByName map[string]int) ([]ServiceConfig, error) {
+	command := nestedString(values, "app", "dev_command", "")
+	if command == "" {
+		return nil, nil
+	}
+	return []ServiceConfig{{
+		Name:    "app",
+		Command: command,
+		Workdir: ".",
+		Port:    portByName["app"],
+	}}, nil
+}
+
+func requiredNestedMapString(values map[string]any, section string, key string) (string, error) {
+	value := optionalMapString(values, key, "")
+	if value == "" {
+		return "", fmt.Errorf("missing required config key: %s.%s", section, key)
+	}
+	return value, nil
+}
+
+func optionalMapString(values map[string]any, key string, fallback string) string {
+	value, ok := values[key]
+	if !ok || value == nil || fmt.Sprint(value) == "" {
+		return fallback
+	}
+	return fmt.Sprint(value)
+}
+
+func optionalMapPort(values map[string]any, section string, fallback int) (int, error) {
+	value, ok := values["port"]
+	if !ok || value == nil {
+		return fallback, nil
+	}
+	port, ok := value.(int)
+	if !ok {
+		return 0, fmt.Errorf("config key %s.port must be an integer", section)
+	}
+	if port <= 0 || port > 65535 {
+		return 0, fmt.Errorf("config key %s.port is out of range", section)
+	}
+	return port, nil
+}
+
+func validateServiceName(name string) error {
+	if name == "" {
+		return errors.New("service name is required")
+	}
+	for _, char := range name {
+		if !(char == '_' || char == '-' || char >= '0' && char <= '9' || char >= 'A' && char <= 'Z' || char >= 'a' && char <= 'z') {
+			return fmt.Errorf("invalid service name: %s", name)
+		}
+	}
+	return nil
 }
 
 func defaultVMType() string {

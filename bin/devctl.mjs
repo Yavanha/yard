@@ -156,29 +156,37 @@ function coerceScalar(value) {
 
 function parseSimpleYaml(content) {
   const root = {};
-  let section = null;
+  const stack = [{ indent: -1, values: root }];
 
   for (const rawLine of content.split(/\r?\n/)) {
     const withoutComment = rawLine.replace(/\s+#.*$/, "");
     if (withoutComment.trim().length === 0) continue;
 
-    const topLevel = withoutComment.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
-    if (topLevel) {
-      const [, key, value] = topLevel;
-      if (value.trim().length === 0) {
-        root[key] = {};
-        section = key;
-      } else {
-        root[key] = coerceScalar(value);
-        section = null;
-      }
-      continue;
+    const indentMatch = withoutComment.match(/^( *)/);
+    const indent = indentMatch?.[1]?.length ?? 0;
+    if (indent % 2 !== 0 || /^\s*\t/.test(withoutComment)) {
+      throw new Error(`Unsupported YAML line: ${rawLine}`);
     }
 
-    const nested = withoutComment.match(/^\s{2}([A-Za-z0-9_-]+):\s*(.*)$/);
-    if (nested && section) {
-      const [, key, value] = nested;
-      root[section][key] = coerceScalar(value);
+    while (stack.length > 1 && stack.at(-1).indent >= indent) {
+      stack.pop();
+    }
+
+    const parent = stack.at(-1);
+    if (indent > parent.indent + 2) {
+      throw new Error(`Unsupported YAML line: ${rawLine}`);
+    }
+
+    const entry = withoutComment.trimStart().match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
+    if (entry) {
+      const [, key, value] = entry;
+      if (value.trim().length === 0) {
+        const child = {};
+        parent.values[key] = child;
+        stack.push({ indent, values: child });
+      } else {
+        parent.values[key] = coerceScalar(value);
+      }
       continue;
     }
 
