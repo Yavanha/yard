@@ -5,9 +5,17 @@ vm_name: lmdlp-dev
 host: lmdlp-dev.test
 vm_user: ubuntu
 repo_dir: /home/ubuntu/workspaces/lmdlp_client
+vm:
+  provider: auto
+  type: vz
+supabase:
+  enabled: true
+  seed: start
 infisical:
   project_path: /lmdlp
   default_env: dev
+app:
+  dev_command: pnpm dev --host 0.0.0.0
 resources:
   cpus: 4
   memory: 6G
@@ -19,4 +27,3 @@ ports:
   supabase_db: 54322
   supabase_studio: 54323
   mailpit: 54324
-

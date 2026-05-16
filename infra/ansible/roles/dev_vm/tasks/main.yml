@@ -1,4 +1,174 @@
 ---
+- name: Assert supported guest distribution
+  ansible.builtin.assert:
+    that:
+      - ansible_facts["distribution"] == "Ubuntu"
+    fail_msg: "dev_vm role supports Ubuntu guests only."
+
+- name: Resolve package architecture names
+  ansible.builtin.set_fact:
+    docker_apt_arch: "{{ docker_apt_arch_map.get(ansible_facts['architecture'], ansible_facts['architecture']) }}"
+    supabase_cli_arch: "{{ supabase_cli_arch_map.get(ansible_facts['architecture'], ansible_facts['architecture']) }}"
+    dev_vm_docker_users: "{{ (docker_users + [vm_user]) | unique }}"
+
+- name: Resolve Supabase release asset names
+  ansible.builtin.set_fact:
+    supabase_cli_deb: "supabase_{{ supabase_cli_version }}_linux_{{ supabase_cli_arch }}.deb"
+    supabase_cli_checksums: "supabase_{{ supabase_cli_version }}_checksums.txt"
+    supabase_cli_release_url: "https://github.com/supabase/cli/releases/download/v{{ supabase_cli_version }}"
+
+- name: Remove conflicting distro Docker packages
+  ansible.builtin.apt:
+    name:
+      - docker.io
+      - docker-doc
+      - docker-compose
+      - docker-compose-v2
+      - podman-docker
+      - containerd
+      - runc
+    state: absent
+    purge: true
+
+- name: Install base development packages
+  ansible.builtin.apt:
+    name:
+      - build-essential
+      - ca-certificates
+      - curl
+      - g++
+      - git
+      - gnupg
+      - jq
+      - make
+      - nodejs
+      - npm
+      - openssh-client
+      - python3
+      - python3-apt
+    state: present
+    update_cache: true
+
+- name: Create apt keyring directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install Docker official apt key
+  ansible.builtin.get_url:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    dest: /etc/apt/keyrings/docker.asc
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Configure Docker official apt repository
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/docker.list
+    owner: root
+    group: root
+    mode: "0644"
+    content: "deb [arch={{ docker_apt_arch }} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu {{ ansible_facts['distribution_release'] }} stable\n"
+  register: docker_apt_repository
+
+- name: Refresh apt cache after Docker repository change
+  ansible.builtin.apt:
+    update_cache: true
+  when: docker_apt_repository.changed
+
+- name: Install Docker Engine and plugins
+  ansible.builtin.apt:
+    name:
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-ce
+      - docker-ce-cli
+      - docker-compose-plugin
+    state: present
+
+- name: Ensure docker group exists
+  ansible.builtin.group:
+    name: docker
+    state: present
+
+- name: Add VM users to docker group
+  ansible.builtin.user:
+    name: "{{ item }}"
+    groups: docker
+    append: true
+  loop: "{{ dev_vm_docker_users }}"
+
+- name: Enable Docker service
+  ansible.builtin.service:
+    name: docker
+    enabled: true
+    state: started
+
+- name: Create devtools prefix
+  ansible.builtin.file:
+    path: "{{ devtools_prefix }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Check installed devcontainer CLI version
+  ansible.builtin.command: "{{ devtools_prefix }}/bin/devcontainer --version"
+  register: devcontainer_cli_current
+  changed_when: false
+  failed_when: false
+
+- name: Install pinned devcontainer CLI
+  ansible.builtin.command: "npm install --global --prefix {{ devtools_prefix }} @devcontainers/cli@{{ devcontainer_cli_version }}"
+  environment:
+    npm_config_update_notifier: "false"
+  when: devcontainer_cli_current.rc != 0 or (devcontainer_cli_current.stdout | trim) != devcontainer_cli_version
+
+- name: Link devcontainer CLI into PATH
+  ansible.builtin.file:
+    src: "{{ devtools_prefix }}/bin/devcontainer"
+    dest: /usr/local/bin/devcontainer
+    state: link
+    force: true
+
+- name: Create devctl cache directory
+  ansible.builtin.file:
+    path: "{{ devctl_cache_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Download Supabase CLI checksums
+  ansible.builtin.get_url:
+    url: "{{ supabase_cli_release_url }}/{{ supabase_cli_checksums }}"
+    dest: "{{ devctl_cache_dir }}/{{ supabase_cli_checksums }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Download pinned Supabase CLI deb
+  ansible.builtin.get_url:
+    url: "{{ supabase_cli_release_url }}/{{ supabase_cli_deb }}"
+    dest: "{{ devctl_cache_dir }}/{{ supabase_cli_deb }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Verify Supabase CLI checksum
+  ansible.builtin.shell: "grep -F {{ supabase_cli_deb | quote }} {{ supabase_cli_checksums | quote }} | sha256sum -c -"
+  args:
+    chdir: "{{ devctl_cache_dir }}"
+  changed_when: false
+
+- name: Install pinned Supabase CLI
+  ansible.builtin.apt:
+    deb: "{{ devctl_cache_dir }}/{{ supabase_cli_deb }}"
+    state: present
+
 - name: Create workspace root
   ansible.builtin.file:
     path: "{{ workspace_root }}"
@@ -7,7 +177,18 @@
     group: "{{ vm_user }}"
     mode: "0755"
 
-- name: Placeholder for dev VM provisioning
-  ansible.builtin.debug:
-    msg: "Docker, devcontainer CLI, Supabase CLI and /proc hardening will be implemented after the architecture plan is finalized."
+- name: Persist /proc hidepid hardening
+  ansible.builtin.lineinfile:
+    path: /etc/fstab
+    regexp: "^proc\\s+/proc\\s+proc\\s+"
+    line: "proc /proc proc defaults,hidepid=2 0 0"
+    create: true
+    owner: root
+    group: root
+    mode: "0644"
+  when: hidepid_enabled | bool
 
+- name: Apply /proc hidepid hardening
+  ansible.builtin.command: mount -o remount,hidepid=2 /proc
+  changed_when: false
+  when: hidepid_enabled | bool

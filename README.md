@@ -3,7 +3,7 @@
 CLI generique pour creer et piloter des environnements de developpement isoles.
 
 Objectif V1:
-- Multipass pour une VM par projet.
+- Lima pour une VM par projet sur macOS, Linux et WSL2.
 - Ansible pour provisionner la VM.
 - Docker uniquement dans la VM.
 - Devcontainer CLI execute dans la VM.
@@ -28,18 +28,34 @@ devctl up
 devctl hosts sync
 devctl ssh config
 devctl provision
+devctl repo sync
+devctl container up
+devctl container rebuild
+devctl app dev
+devctl down
 ```
 
 Si `.devctl.yml` manque, `devctl` affiche un warning et propose `devctl init`.
 
 Commandes MVP:
 - `doctor`: verifie les prerequis hote et affiche les commandes d'installation par OS.
-- `up`: cree la VM Multipass si elle n'existe pas, apres confirmation ressources.
-- `hosts sync`: ajoute ou met a jour `<vm-ip> <host>` dans `/etc/hosts`.
-- `ssh config`: imprime le bloc SSH avec `ForwardAgent yes`.
+- `up`: cree la VM Lima si elle n'existe pas, apres confirmation ressources.
+- `hosts sync`: ajoute ou met a jour `127.0.0.1 <host>` dans `/etc/hosts` pour les ports forwardes par Lima.
+- `ssh config`: imprime le bloc SSH Lima avec `ForwardAgent yes`.
 - `provision`: lance le playbook Ansible embarque dans `devctl`.
+- `repo sync`: clone le repo dans la VM ou fait un fast-forward si le repo est propre.
+- `container up`: demarre le devcontainer depuis le repo dans la VM.
+- `container rebuild`: recree le devcontainer existant.
+- `app dev`: demarre Supabase local si configure, exporte les secrets Infisical cote hote et lance la commande dev dans le devcontainer sans ecrire de fichier `.env`.
+- `down`: stoppe le devcontainer et le stack Supabase du projet. Avec `--vm`, stoppe aussi la VM Lima.
 
 ## Installation globale
+
+Prerequis macOS:
+
+```bash
+brew install lima ansible infisical/get-cli/infisical pnpm git
+```
 
 V1 locale:
 
@@ -78,9 +94,17 @@ vm_name: lmdlp-dev
 host: lmdlp-dev.test
 vm_user: ubuntu
 repo_dir: /home/ubuntu/workspaces/lmdlp_client
+vm:
+  provider: auto
+  type: vz
+supabase:
+  enabled: true
+  seed: start
 infisical:
   project_path: /lmdlp
   default_env: dev
+app:
+  dev_command: pnpm dev --host 0.0.0.0
 resources:
   cpus: 4
   memory: 6G
@@ -94,6 +118,24 @@ ports:
   mailpit: 54324
 ```
 
+`vm.provider: auto` choisit Lima sur macOS, Linux et WSL2. Windows natif n'est pas supporte en V1: lancer `devctl` depuis WSL2.
+
+Sur macOS, `vm.type: vz` evite le chemin QEMU de Multipass et contourne l'erreur Apple Silicon `host-arm-cpu.sme`.
+
+`supabase.seed: start` laisse `supabase start` appliquer migrations et `supabase/seed.sql` au premier demarrage local. Utiliser `reset` seulement pour forcer `supabase db reset --local` a chaque `app dev`, car cela detruit les donnees locales.
+
+Pour fin de session:
+
+```bash
+devctl down --project .devctl.yml
+```
+
+Si un stack Supabase a ete lance hors du dossier projet, ajouter `--supabase-all`. Pour tout eteindre, VM incluse:
+
+```bash
+devctl down --project .devctl.yml --supabase-all --vm
+```
+
 ## Etat
 
-Scaffold initial. Les commandes d'orchestration Multipass/Ansible seront ajoutees apres validation du plan.
+V1 locale en cours: orchestration Lima, provision Ansible, sync Git VM, devcontainer, app dev avec injection Infisical runtime.
