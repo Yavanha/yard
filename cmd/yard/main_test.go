@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -98,6 +99,19 @@ func TestParseStatusArgs(t *testing.T) {
 
 	assertEqual(t, parsed.command, "status")
 	assertEqual(t, parsed.positionals[0], "example")
+}
+
+func TestParseSetupArgs(t *testing.T) {
+	t.Parallel()
+
+	parsed, err := parseArgs([]string{"setup", "example", "--registry", "/tmp/config.yaml"})
+	if err != nil {
+		t.Fatalf("parseArgs returned error: %v", err)
+	}
+
+	assertEqual(t, parsed.command, "setup")
+	assertEqual(t, parsed.positionals[0], "example")
+	assertEqual(t, parsed.registryPath, "/tmp/config.yaml")
 }
 
 func TestResolvedConfigPathUsesDirectProjectPath(t *testing.T) {
@@ -219,6 +233,50 @@ func TestResolvedVMNameFallsBackToLiteralVMName(t *testing.T) {
 	assertEqual(t, resolved, "raw-vm")
 }
 
+func TestResolvedProjectConfigUsesRegistryVMName(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".devctl.yml")
+	writeTestConfig(t, configPath)
+
+	registryPath := filepath.Join(t.TempDir(), "config.yaml")
+	reg, err := registry.New().Add("example", registry.Project{
+		Path:   dir,
+		Config: configPath,
+		VM:     registry.VM{Name: "registry-vm"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Save(registryPath, reg); err != nil {
+		t.Fatal(err)
+	}
+
+	projectConfig, err := resolvedProjectConfig(args{
+		registryPath: registryPath,
+	})
+	if err != nil {
+		t.Fatalf("resolvedProjectConfig returned error: %v", err)
+	}
+	assertEqual(t, projectConfig.VMName, "registry-vm")
+	assertEqual(t, projectConfig.Resources.CPUs, 4)
+}
+
+func TestResolvedProjectConfigUsesDirectProjectConfig(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".devctl.yml")
+	writeTestConfig(t, configPath)
+
+	projectConfig, err := resolvedProjectConfig(args{projectPath: configPath})
+	if err != nil {
+		t.Fatalf("resolvedProjectConfig returned error: %v", err)
+	}
+	assertEqual(t, projectConfig.VMName, "file-vm")
+}
+
 func TestBuildStatusRows(t *testing.T) {
 	t.Parallel()
 
@@ -318,5 +376,24 @@ func assertEqual(t *testing.T, got any, want any) {
 	t.Helper()
 	if got != want {
 		t.Fatalf("expected %#v, got %#v", want, got)
+	}
+}
+
+func writeTestConfig(t *testing.T, path string) {
+	t.Helper()
+	content := []byte(`vm_name: file-vm
+vm_user: ubuntu
+vm:
+  provider: auto
+  type: vz
+resources:
+  cpus: 4
+  memory: 6G
+  disk: 50G
+ports:
+  app: 3000
+`)
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		t.Fatal(err)
 	}
 }

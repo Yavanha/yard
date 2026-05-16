@@ -8,8 +8,18 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strconv"
 	"strings"
+
+	"yard/internal/config"
 )
+
+const ubuntuImageTemplate = "template:_images/ubuntu-24.04"
+
+var sizePattern = regexp.MustCompile(`^(\d+(?:\.\d+)?)([KMGTP]?)B?$`)
 
 type Runner interface {
 	Output(command string, args ...string) ([]byte, error)
@@ -38,6 +48,11 @@ type Instance struct {
 	Disk          int64  `json:"disk"`
 	SSHLocalPort  int    `json:"sshLocalPort"`
 	SSHConfigFile string `json:"sshConfigFile"`
+}
+
+type SetupResult struct {
+	VMName  string
+	Created bool
 }
 
 func NewClient(runner Runner) Client {
@@ -94,6 +109,19 @@ func (c Client) List() ([]Instance, error) {
 	return ParseList(output)
 }
 
+func (c Client) Exists(name string) (bool, error) {
+	instances, err := c.List()
+	if err != nil {
+		return false, err
+	}
+	for _, instance := range instances {
+		if instance.Name == name {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (c Client) Status(name string) (Instance, error) {
 	output, err := c.Runner.Output("limactl", "list", "--format", "json", name)
 	if err != nil {
@@ -115,6 +143,37 @@ func (c Client) Start(name string) error {
 
 func (c Client) Stop(name string) error {
 	return c.Runner.Run("limactl", "stop", "--yes", name)
+}
+
+func (c Client) Setup(project config.ProjectConfig) (SetupResult, error) {
+	exists, err := c.Exists(project.VMName)
+	if err != nil {
+		return SetupResult{}, err
+	}
+	if exists {
+		return SetupResult{VMName: project.VMName, Created: false}, nil
+	}
+
+	content, err := RenderConfig(project)
+	if err != nil {
+		return SetupResult{}, err
+	}
+
+	tempDir, err := os.MkdirTemp("", "yard-lima-")
+	if err != nil {
+		return SetupResult{}, err
+	}
+	defer os.RemoveAll(tempDir)
+
+	configPath := filepath.Join(tempDir, project.VMName+".yaml")
+	if err := os.WriteFile(configPath, []byte(content), 0o600); err != nil {
+		return SetupResult{}, err
+	}
+
+	if err := c.Runner.Run("limactl", "start", "--yes", "--name", project.VMName, configPath); err != nil {
+		return SetupResult{}, err
+	}
+	return SetupResult{VMName: project.VMName, Created: true}, nil
 }
 
 func (c Client) Exec(name string, command []string) error {
@@ -169,4 +228,90 @@ func SSHArgs(instance Instance, command []string) []string {
 		"--",
 	}
 	return append(args, command...)
+}
+
+func RenderConfig(project config.ProjectConfig) (string, error) {
+	memory, err := FormatSizeForLima(project.Resources.Memory)
+	if err != nil {
+		return "", err
+	}
+	disk, err := FormatSizeForLima(project.Resources.Disk)
+	if err != nil {
+		return "", err
+	}
+
+	ports := append([]config.PortMapping(nil), project.Ports...)
+	sort.Slice(ports, func(left int, right int) bool {
+		if ports[left].Port == ports[right].Port {
+			return ports[left].Name < ports[right].Name
+		}
+		return ports[left].Port < ports[right].Port
+	})
+
+	var builder strings.Builder
+	builder.WriteString("minimumLimaVersion: 2.0.0\n")
+	builder.WriteString("base:\n")
+	builder.WriteString("  - " + ubuntuImageTemplate + "\n")
+	builder.WriteString("vmType: " + quoteYAML(project.VM.Type) + "\n")
+	builder.WriteString("arch: \"default\"\n")
+	builder.WriteString(fmt.Sprintf("cpus: %d\n", project.Resources.CPUs))
+	builder.WriteString("memory: " + quoteYAML(memory) + "\n")
+	builder.WriteString("disk: " + quoteYAML(disk) + "\n")
+	builder.WriteString("mounts: []\n")
+	builder.WriteString("containerd:\n")
+	builder.WriteString("  system: false\n")
+	builder.WriteString("  user: false\n")
+	builder.WriteString("ssh:\n")
+	builder.WriteString("  forwardAgent: true\n")
+	builder.WriteString("  loadDotSSHPubKeys: true\n")
+	builder.WriteString("user:\n")
+	builder.WriteString("  name: " + quoteYAML(project.VMUser) + "\n")
+	builder.WriteString("  home: " + quoteYAML("/home/"+project.VMUser) + "\n")
+	builder.WriteString("portForwards:\n")
+	if len(ports) == 0 {
+		builder.WriteString("  []\n")
+	} else {
+		for _, port := range ports {
+			builder.WriteString(fmt.Sprintf("  - guestPort: %d\n", port.Port))
+			builder.WriteString(fmt.Sprintf("    hostPort: %d\n", port.Port))
+			builder.WriteString("    hostIP: \"127.0.0.1\"\n")
+		}
+	}
+	return builder.String(), nil
+}
+
+func FormatSizeForLima(value string) (string, error) {
+	match := sizePattern.FindStringSubmatch(strings.ToUpper(strings.TrimSpace(value)))
+	if match == nil {
+		return "", fmt.Errorf("invalid size: %s", value)
+	}
+
+	amount, err := strconv.ParseFloat(match[1], 64)
+	if err != nil {
+		return "", err
+	}
+
+	multiplier, ok := map[string]float64{
+		"":  1 / (1024 * 1024),
+		"K": 1.0 / 1024,
+		"M": 1,
+		"G": 1024,
+		"T": 1024 * 1024,
+		"P": 1024 * 1024 * 1024,
+	}[match[2]]
+	if !ok {
+		return "", fmt.Errorf("invalid size unit: %s", match[2])
+	}
+
+	mib := amount * multiplier
+	gib := mib / 1024
+	if gib == float64(int64(gib)) {
+		return fmt.Sprintf("%dGiB", int64(gib)), nil
+	}
+	return fmt.Sprintf("%.2fGiB", gib), nil
+}
+
+func quoteYAML(value string) string {
+	encoded, _ := json.Marshal(value)
+	return string(encoded)
 }

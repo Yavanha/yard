@@ -60,6 +60,8 @@ func run(argv []string) error {
 		return runExec(parsed)
 	case "status":
 		return runStatus(parsed)
+	case "setup":
+		return runSetup(parsed)
 	default:
 		return fmt.Errorf("unknown command: %s", parsed.command)
 	}
@@ -473,6 +475,72 @@ func runStatus(parsed args) error {
 	return writeStatusRows(os.Stdout, rows)
 }
 
+func runSetup(parsed args) error {
+	if len(parsed.positionals) > 1 {
+		return errors.New("usage: setup [project-name] [--project <path>]")
+	}
+
+	projectConfig, err := resolvedProjectConfig(parsed)
+	if err != nil {
+		return err
+	}
+	if projectConfig.VM.Provider != "auto" && projectConfig.VM.Provider != "lima" {
+		return fmt.Errorf("unsupported VM provider for setup: %s", projectConfig.VM.Provider)
+	}
+
+	client := lima.NewClient(nil)
+	result, err := client.Setup(projectConfig)
+	if err != nil {
+		return err
+	}
+	if result.Created {
+		fmt.Printf("VM created: %s\n", result.VMName)
+		return nil
+	}
+	fmt.Printf("VM already exists: %s\n", result.VMName)
+	return nil
+}
+
+func resolvedProjectConfig(parsed args) (config.ProjectConfig, error) {
+	workDir, err := os.Getwd()
+	if err != nil {
+		return config.ProjectConfig{}, err
+	}
+
+	projectPath := parsed.projectPath
+	registryVMName := ""
+	if projectPath == "" {
+		if len(parsed.positionals) > 1 {
+			return config.ProjectConfig{}, errors.New("usage: setup [project-name] [--project <path>]")
+		}
+		name := ""
+		if len(parsed.positionals) == 1 {
+			name = parsed.positionals[0]
+		}
+		_, project, err := resolvedRegistryProject(parsed, name)
+		if err != nil {
+			return config.ProjectConfig{}, err
+		}
+		projectPath = project.Config
+		registryVMName = project.VM.Name
+	} else if len(parsed.positionals) > 0 {
+		return config.ProjectConfig{}, errors.New("setup accepts either a project name or --project, not both")
+	}
+
+	loaded, err := config.Load(projectPath, workDir)
+	if err != nil {
+		return config.ProjectConfig{}, err
+	}
+	projectConfig, err := config.ProjectConfigFromMap(loaded.Config)
+	if err != nil {
+		return config.ProjectConfig{}, err
+	}
+	if registryVMName != "" {
+		projectConfig.VMName = registryVMName
+	}
+	return projectConfig, nil
+}
+
 func buildStatusRows(reg registry.Registry, instances []lima.Instance, filter string) ([]statusRow, error) {
 	byVM := map[string]lima.Instance{}
 	for _, instance := range instances {
@@ -597,6 +665,7 @@ Usage:
   go run ./cmd/yard vm exec [project-or-vm] -- <command>
   go run ./cmd/yard exec [project-name] -- <command>
   go run ./cmd/yard status [project-name]
+  go run ./cmd/yard setup [project-name]
 
 Commands:
   config   Print resolved project config as JSON.
@@ -605,5 +674,6 @@ Commands:
   vm       Manage Lima VMs.
   exec     Execute a command in the current or named project's VM.
   status   Show projects and VM state in a table.
+  setup    Create the project VM if it does not exist.
 `, version)
 }

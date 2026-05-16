@@ -3,7 +3,10 @@ package lima
 import (
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
+
+	"yard/internal/config"
 )
 
 func TestParseListParsesJSONStream(t *testing.T) {
@@ -74,6 +77,64 @@ func TestClientStartStop(t *testing.T) {
 	}
 }
 
+func TestClientSetupSkipsExistingVM(t *testing.T) {
+	t.Parallel()
+
+	runner := &fakeRunner{
+		outputs: map[string][]byte{
+			"limactl list --format json": []byte(`{"name":"alpha","status":"Stopped"}`),
+		},
+	}
+	client := NewClient(runner)
+
+	result, err := client.Setup(config.ProjectConfig{
+		VMName: "alpha",
+	})
+	if err != nil {
+		t.Fatalf("Setup returned error: %v", err)
+	}
+	assertEqual(t, result.VMName, "alpha")
+	assertEqual(t, result.Created, false)
+	if len(runner.runs) != 0 {
+		t.Fatalf("expected no run calls, got %#v", runner.runs)
+	}
+}
+
+func TestClientSetupCreatesMissingVM(t *testing.T) {
+	t.Parallel()
+
+	runner := &fakeRunner{
+		outputs: map[string][]byte{
+			"limactl list --format json": nil,
+		},
+	}
+	client := NewClient(runner)
+
+	result, err := client.Setup(config.ProjectConfig{
+		VMName: "alpha",
+		VMUser: "ubuntu",
+		VM:     config.VMConfig{Type: "vz"},
+		Resources: config.ResourceConfig{
+			CPUs:   4,
+			Memory: "6G",
+			Disk:   "50G",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Setup returned error: %v", err)
+	}
+	assertEqual(t, result.VMName, "alpha")
+	assertEqual(t, result.Created, true)
+	if len(runner.runs) != 1 {
+		t.Fatalf("expected one run call, got %#v", runner.runs)
+	}
+	assertEqual(t, runner.runs[0][0], "limactl")
+	assertEqual(t, runner.runs[0][1], "start")
+	assertEqual(t, runner.runs[0][2], "--yes")
+	assertEqual(t, runner.runs[0][3], "--name")
+	assertEqual(t, runner.runs[0][4], "alpha")
+}
+
 func TestClientExecUsesSSH(t *testing.T) {
 	t.Parallel()
 
@@ -120,6 +181,50 @@ func TestClientExecRequiresCommand(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected missing command to fail")
 	}
+}
+
+func TestRenderConfig(t *testing.T) {
+	t.Parallel()
+
+	rendered, err := RenderConfig(config.ProjectConfig{
+		VMName: "alpha",
+		VMUser: "ubuntu",
+		VM:     config.VMConfig{Type: "vz"},
+		Resources: config.ResourceConfig{
+			CPUs:   4,
+			Memory: "6G",
+			Disk:   "50G",
+		},
+		Ports: []config.PortMapping{
+			{Name: "app", Port: 3000},
+		},
+	})
+	if err != nil {
+		t.Fatalf("RenderConfig returned error: %v", err)
+	}
+
+	for _, expected := range []string{
+		"vmType: \"vz\"",
+		"cpus: 4",
+		"memory: \"6GiB\"",
+		"disk: \"50GiB\"",
+		"name: \"ubuntu\"",
+		"guestPort: 3000",
+	} {
+		if !strings.Contains(rendered, expected) {
+			t.Fatalf("expected rendered config to contain %q:\n%s", expected, rendered)
+		}
+	}
+}
+
+func TestFormatSizeForLima(t *testing.T) {
+	t.Parallel()
+
+	got, err := FormatSizeForLima("6G")
+	if err != nil {
+		t.Fatalf("FormatSizeForLima returned error: %v", err)
+	}
+	assertEqual(t, got, "6GiB")
 }
 
 type fakeRunner struct {
