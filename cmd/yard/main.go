@@ -7,8 +7,8 @@ import (
 	"os"
 	"text/tabwriter"
 
-	"devctl/internal/config"
-	"devctl/internal/registry"
+	"yard/internal/config"
+	"yard/internal/registry"
 )
 
 const version = "0.2.0-dev"
@@ -238,14 +238,14 @@ func resolvedRegistryPath(parsed args) (string, error) {
 }
 
 func printHelp() {
-	fmt.Printf(`devctl-go %s
+	fmt.Printf(`yard %s
 
 Usage:
-  go run ./cmd/devctl --help
-  go run ./cmd/devctl config [--project <path>]
-  go run ./cmd/devctl project add <name> <path> [--config <path>] [--vm-mode shared|dedicated] [--vm-name <name>]
-  go run ./cmd/devctl project list
-  go run ./cmd/devctl use <name>
+  go run ./cmd/yard --help
+  go run ./cmd/yard config [--project <path>]
+  go run ./cmd/yard project add <name> <path> [--config <path>] [--vm-mode shared|dedicated] [--vm-name <name>]
+  go run ./cmd/yard project list
+  go run ./cmd/yard use <name>
 
 Commands:
   config   Print resolved project config as JSON.

@@ -1,15 +1,15 @@
-# devctl
+# Yard
 
-`devctl` pilote des environnements de developpement isoles depuis la machine hote, sans stocker de secrets reels dans les repos ou les VMs.
+Yard pilote des environnements de developpement isoles depuis la machine hote, sans stocker de secrets reels dans les repos ou les VMs.
 
 ## Language
 
 **Host Controller**:
-Le processus `devctl` execute sur la machine hote, responsable de l'orchestration et de l'acces aux credentials locaux.
+Le processus `yard` execute sur la machine hote, responsable de l'orchestration et de l'acces aux credentials locaux.
 _Avoid_: agent remote, CLI VM
 
 **Project**:
-Un repo applicatif enregistre et pilotable par `devctl`.
+Un repo applicatif enregistre et pilotable par Yard.
 _Avoid_: app, workspace
 
 **Project Registry**:
@@ -40,7 +40,7 @@ _Avoid_: credentials GitHub dans la VM
 
 - Un **Host Controller** pilote un ou plusieurs **Projects**.
 - Un **Project** est declare dans un **Project Registry** local a la machine hote.
-- Le **Project Registry** vit par defaut dans `~/.config/devctl/config.yaml`.
+- Le **Project Registry** vit par defaut dans `~/.config/yard/config.yaml`.
 - Un **Project** peut utiliser une **Dev VM** partagee ou dediee selon `vm.mode` dans le **Project Registry**.
 - Un **Environment** peut etre mono-project maintenant et multi-project plus tard pour composer front, backend, workers ou services dans des repos differents.
 - **Start** reutilise les ressources deja demarrees au lieu de dupliquer ou detruire des processus.
@@ -59,16 +59,16 @@ _Avoid_: credentials GitHub dans la VM
 > **Domain expert:** "Non. Chaque repo reste un **Project**; plus tard un **Environment** pourra composer plusieurs **Projects**."
 >
 > **Dev:** "Pour recuperer un repo d'une organisation GitHub, est-ce que la VM doit avoir mes credentials GitHub ?"
-> **Domain expert:** "Non. GitHub est une **Repository Source** cote host, probablement via `gh`, puis `devctl` clone/synchronise sans persister de credentials dans la **Dev VM**."
+> **Domain expert:** "Non. GitHub est une **Repository Source** cote host, probablement via `gh`, puis Yard clone/synchronise sans persister de credentials dans la **Dev VM**."
 
 ## Flagged ambiguities
 
 - "dedicated" signifie maintenant `vm.mode: dedicated` dans le **Project Registry**, pas une option versionnee dans `.devctl.yml`.
-- Les noms comme `lmdlp` sont des exemples de **Project**, jamais des cas hardcodes dans `devctl`.
+- Les noms comme `lmdlp` sont des exemples de **Project**, jamais des cas hardcodes dans Yard.
 - `start` signifie demarrage idempotent et non destructif; les actions destructives appartiennent a `reset` ou a des commandes explicitement confirmees.
-- "process ouvert" signifie un **Process** observable et controle par `devctl status/logs`, pas un terminal interactif laisse ouvert.
+- "process ouvert" signifie un **Process** observable et controle par `yard status/logs`, pas un terminal interactif laisse ouvert.
 - "backend" n'est pas un type special de **Project**; c'est souvent un **Process** dans le meme repo, ou un autre **Project** compose plus tard dans un **Environment** multi-project.
-- "GitHub org" est une capacite de **Repository Source**, pas une hypothese hardcodee dans le coeur de `devctl`.
+- "GitHub org" est une capacite de **Repository Source**, pas une hypothese hardcodee dans le coeur de Yard.
 
 ## Registry shape
 
@@ -80,7 +80,7 @@ projects:
     config: /Users/me/workspaces/example/.devctl.yml
     vm:
       mode: shared
-      name: devctl-shared
+      name: yard-shared
 ```
 
-`config` est optionnel et vaut `<path>/.devctl.yml` par defaut. `vm.mode` vaut `shared` par defaut, et `vm.name` vaut `devctl-shared` quand le mode est partage.
+`config` est optionnel et vaut `<path>/.devctl.yml` par defaut pendant la migration. `vm.mode` vaut `shared` par defaut, et `vm.name` vaut `yard-shared` quand le mode est partage.

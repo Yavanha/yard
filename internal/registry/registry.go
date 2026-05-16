@@ -13,7 +13,7 @@ import (
 
 const (
 	DefaultVMMode = "shared"
-	DefaultVMName = "devctl-shared"
+	DefaultVMName = "yard-shared"
 )
 
 type Registry struct {
@@ -41,7 +41,7 @@ func DefaultPath() (string, error) {
 		}
 		configHome = filepath.Join(home, ".config")
 	}
-	return filepath.Join(configHome, "devctl", "config.yaml"), nil
+	return filepath.Join(configHome, "yard", "config.yaml"), nil
 }
 
 func Load(path string) (Registry, error) {

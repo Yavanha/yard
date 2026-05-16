@@ -1,6 +1,8 @@
-# devctl
+# Yard
 
 CLI generique pour creer et piloter des environnements de developpement isoles.
+
+Le repo et la CLI Node V1 portent encore le nom historique `devctl`. Le produit et le prototype Go V2 utilisent le nom cible `yard`.
 
 Objectif V1:
 - Lima pour une VM par projet sur macOS, Linux et WSL2.
@@ -140,14 +142,14 @@ devctl down --project .devctl.yml --supabase-all --vm
 
 V1 locale en cours: orchestration Lima, provision Ansible, sync Git VM, devcontainer, app dev avec injection Infisical runtime.
 
-## Migration Go V2
+## Migration Go V2 - Yard
 
 La CLI Node reste la reference fonctionnelle pendant la migration.
 
 Premier slice Go:
 
 ```bash
-go run ./cmd/devctl config --project examples/lmdlp.devctl.yml
+go run ./cmd/yard config --project examples/lmdlp.devctl.yml
 go test ./...
 ```
 
@@ -156,12 +158,12 @@ Objectif: porter les commandes une par une, avec tests, avant de remplacer le bi
 Registre projets host:
 
 ```bash
-go run ./cmd/devctl project add example /path/to/repo
-go run ./cmd/devctl project list
-go run ./cmd/devctl use example
+go run ./cmd/yard project add example /path/to/repo
+go run ./cmd/yard project list
+go run ./cmd/yard use example
 ```
 
-Le registre vit par defaut dans `~/.config/devctl/config.yaml`. Les choix locaux comme `vm.mode: shared|dedicated` restent dans ce registre, pas dans `.devctl.yml`.
+Le registre vit par defaut dans `~/.config/yard/config.yaml`. Les choix locaux comme `vm.mode: shared|dedicated` restent dans ce registre, pas dans `.devctl.yml`.
 
 Notes de cadrage:
 - `Project` reste un repo enregistre. Un backend separe sera donc un autre `Project`.

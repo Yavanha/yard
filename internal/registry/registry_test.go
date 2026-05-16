@@ -19,7 +19,7 @@ func TestAddProjectDefaults(t *testing.T) {
 	assertEqual(t, reg.CurrentProject, "example")
 	assertEqual(t, project.Config, "/tmp/example/.devctl.yml")
 	assertEqual(t, project.VM.Mode, "shared")
-	assertEqual(t, project.VM.Name, "devctl-shared")
+	assertEqual(t, project.VM.Name, "yard-shared")
 }
 
 func TestAddDedicatedProjectDefaultsVMName(t *testing.T) {
@@ -101,7 +101,7 @@ func TestMarshalRegistrySortsProjects(t *testing.T) {
 func TestSaveAndLoad(t *testing.T) {
 	t.Parallel()
 
-	path := filepath.Join(t.TempDir(), "devctl", "config.yaml")
+	path := filepath.Join(t.TempDir(), "yard", "config.yaml")
 	reg, err := New().Add("example", Project{Path: "/tmp/example"})
 	if err != nil {
 		t.Fatal(err)
