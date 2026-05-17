@@ -130,13 +130,13 @@ func TestRunProjectImportInteractiveSelectsExistingKey(t *testing.T) {
 	var output bytes.Buffer
 	input := strings.Join([]string{
 		"yes",
-		"1",
 		"git@github.com:acme/api.git",
 		"",
 		destination,
 		"",
 		"dedicated",
 		"",
+		"1",
 	}, "\n") + "\n"
 
 	err := runProjectImportInteractiveWithDeps(
@@ -260,6 +260,93 @@ func TestRunProjectImportInteractiveCreatesAndUploadsKey(t *testing.T) {
 	}
 }
 
+func TestRunProjectImportInteractiveNotSureFallsBackToNewKey(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	registryPath := filepath.Join(tempDir, "yard", "config.yaml")
+	destination := filepath.Join(tempDir, "api")
+	existingIdentityFile := filepath.Join(tempDir, "ssh", "existing")
+	createdIdentityFile := filepath.Join(tempDir, "ssh", "yard_acme_api_ed25519")
+	importer := &fakeGitImporter{
+		accessErrs: []error{
+			errors.New("permission denied"),
+			nil,
+		},
+	}
+	keys := &fakeFingerprinter{
+		fingerprint: "SHA256:created",
+		publicKey:   "ssh-ed25519 AAAA yard api",
+		keys: []sshkeys.KeyCandidate{{
+			Path:        existingIdentityFile,
+			Comment:     "old@example.com",
+			Fingerprint: "SHA256:old",
+		}},
+	}
+	var output bytes.Buffer
+	input := strings.Join([]string{
+		"not sure",
+		"git@github.com:acme/api.git",
+		"",
+		destination,
+		"",
+		"shared",
+		"",
+		"1",
+		"yes",
+		createdIdentityFile,
+		"",
+		"yes",
+		"",
+	}, "\n") + "\n"
+
+	err := runProjectImportInteractiveWithDepsAndUploader(
+		args{registryPath: registryPath},
+		importer,
+		keys,
+		&fakePublicKeyUploader{},
+		prompt.New(strings.NewReader(input), &output),
+	)
+	if err != nil {
+		t.Fatalf("runProjectImportInteractiveWithDepsAndUploader returned error: %v", err)
+	}
+
+	absExistingIdentity, err := filepath.Abs(existingIdentityFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	absCreatedIdentity, err := filepath.Abs(createdIdentityFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(importer.accessCalls) != 2 {
+		t.Fatalf("expected 2 access tests, got %#v", importer.accessCalls)
+	}
+	assertEqual(t, importer.accessCalls[0], gitCall{
+		repoURL:      "git@github.com:acme/api.git",
+		identityFile: absExistingIdentity,
+	})
+	assertEqual(t, importer.accessCalls[1], gitCall{
+		repoURL:      "git@github.com:acme/api.git",
+		identityFile: absCreatedIdentity,
+	})
+	assertEqual(t, keys.createdIdentityFile, absCreatedIdentity)
+
+	reg, err := registry.Load(registryPath)
+	if err != nil {
+		t.Fatalf("registry.Load returned error: %v", err)
+	}
+	project := reg.Projects["api"]
+	assertEqual(t, project.Git.IdentityFile, absCreatedIdentity)
+	assertEqual(t, project.Git.Fingerprint, "SHA256:created")
+
+	for _, expected := range []string{"Selected SSH key did not work:", "Create a new SSH key", "Public key:"} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("expected output to contain %q:\n%s", expected, output.String())
+		}
+	}
+}
+
 func TestCreateImportSSHKeyPrintsManualInstructionsWhenGHIsMissing(t *testing.T) {
 	t.Parallel()
 
@@ -354,6 +441,7 @@ func TestRunProjectImportDoesNotCloneWhenAccessFails(t *testing.T) {
 type fakeGitImporter struct {
 	accessCalls []gitCall
 	cloneCalls  []gitCall
+	accessErrs  []error
 	accessErr   error
 	cloneErr    error
 }
@@ -369,6 +457,11 @@ func (i *fakeGitImporter) TestAccess(repoURL string, identityFile string) error 
 		repoURL:      repoURL,
 		identityFile: identityFile,
 	})
+	if len(i.accessErrs) > 0 {
+		err := i.accessErrs[0]
+		i.accessErrs = i.accessErrs[1:]
+		return err
+	}
 	return i.accessErr
 }
 

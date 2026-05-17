@@ -49,6 +49,8 @@ type projectImportOptions struct {
 	VMName       string
 }
 
+var errNoPathBackedSSHKeys = errors.New("no path-backed SSH keys found. Run: yard ssh keys")
+
 func runProjectImport(parsed args) error {
 	gitClient := gitrepo.NewClient(nil)
 	detector := sshkeys.NewDetector(nil, defaultSSHDir())
@@ -83,26 +85,69 @@ func runProjectImportInteractiveWithDepsAndUploader(parsed args, importer gitImp
 		return err
 	}
 
-	var key sshkeys.KeyCandidate
-	if sshKeyAvailability != "no" {
-		key, err = selectImportSSHKey(prompter, keys)
-		if err != nil {
-			return err
-		}
-	}
-
 	options, err := askProjectImportOptions(parsed, prompter)
 	if err != nil {
 		return err
 	}
 
-	if sshKeyAvailability == "no" {
+	var key sshkeys.KeyCandidate
+	switch sshKeyAvailability {
+	case "no":
 		key, err = createImportSSHKey(prompter, keys, uploader, options.RepoURL)
+		if err != nil {
+			return err
+		}
+	case "yes":
+		key, err = selectImportSSHKey(prompter, keys)
+		if err != nil {
+			return err
+		}
+	case "not sure":
+		key, err = selectImportSSHKey(prompter, keys)
+		if errors.Is(err, errNoPathBackedSSHKeys) {
+			fmt.Fprintln(prompter.Writer(), "No existing SSH key could be selected.")
+			key, err = createImportSSHKey(prompter, keys, uploader, options.RepoURL)
+		}
 		if err != nil {
 			return err
 		}
 	}
 
+	options.IdentityFile = key.Path
+	options.Fingerprint = key.Fingerprint
+	options, err = resolveProjectImportOptions(options, keys)
+	if err != nil {
+		return err
+	}
+	if sshKeyAvailability == "not sure" {
+		return executeProjectImportWithFallback(parsed, options, importer, keys, uploader, prompter)
+	}
+	return executeProjectImport(parsed, options, importer, prompter.Writer())
+}
+
+func executeProjectImportWithFallback(parsed args, options projectImportOptions, importer gitImporter, keys importKeyProvider, uploader publicKeyUploader, prompter prompt.Prompter) error {
+	if err := ensureImportDestinationAvailable(options.Destination); err != nil {
+		return err
+	}
+
+	if err := testProjectImportAccess(options, importer, prompter.Writer()); err == nil {
+		return finishProjectImport(parsed, options, importer, prompter.Writer())
+	} else {
+		fmt.Fprintf(prompter.Writer(), "Selected SSH key did not work: %v\n", err)
+	}
+
+	createKey, err := prompter.Confirm("Create a new SSH key", true)
+	if err != nil {
+		return err
+	}
+	if !createKey {
+		return errors.New("repository access test failed")
+	}
+
+	key, err := createImportSSHKey(prompter, keys, uploader, options.RepoURL)
+	if err != nil {
+		return err
+	}
 	options.IdentityFile = key.Path
 	options.Fingerprint = key.Fingerprint
 	options, err = resolveProjectImportOptions(options, keys)
@@ -191,7 +236,7 @@ func selectImportSSHKey(prompter prompt.Prompter, keys importKeyProvider) (sshke
 	}
 	selectable := pathBackedKeys(candidates)
 	if len(selectable) == 0 {
-		return sshkeys.KeyCandidate{}, errors.New("no path-backed SSH keys found. Run: yard ssh keys")
+		return sshkeys.KeyCandidate{}, errNoPathBackedSSHKeys
 	}
 
 	fmt.Fprintln(prompter.Writer(), "Available SSH keys:")
@@ -396,11 +441,21 @@ func executeProjectImport(parsed args, options projectImportOptions, importer gi
 		return err
 	}
 
+	if err := testProjectImportAccess(options, importer, output); err != nil {
+		return err
+	}
+	return finishProjectImport(parsed, options, importer, output)
+}
+
+func testProjectImportAccess(options projectImportOptions, importer gitImporter, output io.Writer) error {
 	fmt.Fprintln(output, "Testing repository access...")
 	if err := importer.TestAccess(options.RepoURL, options.IdentityFile); err != nil {
 		return err
 	}
+	return nil
+}
 
+func finishProjectImport(parsed args, options projectImportOptions, importer gitImporter, output io.Writer) error {
 	fmt.Fprintln(output, "Cloning repository...")
 	if err := importer.Clone(options.RepoURL, options.IdentityFile, options.Destination); err != nil {
 		return err
