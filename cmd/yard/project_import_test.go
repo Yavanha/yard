@@ -8,7 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"yard/internal/prompt"
 	"yard/internal/registry"
+	"yard/internal/sshkeys"
 )
 
 func TestParseProjectImportArgs(t *testing.T) {
@@ -108,6 +110,101 @@ func TestRunProjectImportTestsClonesAndRegistersProject(t *testing.T) {
 	}
 }
 
+func TestRunProjectImportInteractiveSelectsExistingKey(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	registryPath := filepath.Join(tempDir, "yard", "config.yaml")
+	destination := filepath.Join(tempDir, "api")
+	identityFile := filepath.Join(tempDir, "ssh", "yard_acme")
+	importer := &fakeGitImporter{}
+	keys := &fakeFingerprinter{
+		fingerprint: "SHA256:abc123",
+		keys: []sshkeys.KeyCandidate{{
+			Path:        identityFile,
+			Comment:     "api@example.com",
+			Fingerprint: "SHA256:abc123",
+			InAgent:     true,
+		}},
+	}
+	var output bytes.Buffer
+	input := strings.Join([]string{
+		"yes",
+		"1",
+		"git@github.com:acme/api.git",
+		"",
+		destination,
+		"",
+		"dedicated",
+		"",
+	}, "\n") + "\n"
+
+	err := runProjectImportInteractiveWithDeps(
+		args{registryPath: registryPath},
+		importer,
+		keys,
+		prompt.New(strings.NewReader(input), &output),
+	)
+	if err != nil {
+		t.Fatalf("runProjectImportInteractiveWithDeps returned error: %v", err)
+	}
+
+	absIdentity, err := filepath.Abs(identityFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	absDestination, err := filepath.Abs(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertEqual(t, importer.accessCalls[0], gitCall{
+		repoURL:      "git@github.com:acme/api.git",
+		identityFile: absIdentity,
+	})
+	assertEqual(t, importer.cloneCalls[0], gitCall{
+		repoURL:      "git@github.com:acme/api.git",
+		identityFile: absIdentity,
+		destination:  absDestination,
+	})
+
+	reg, err := registry.Load(registryPath)
+	if err != nil {
+		t.Fatalf("registry.Load returned error: %v", err)
+	}
+	project := reg.Projects["api"]
+	assertEqual(t, project.Path, absDestination)
+	assertEqual(t, project.Config, filepath.Join(absDestination, ".devctl.yml"))
+	assertEqual(t, project.Git.IdentityFile, absIdentity)
+	assertEqual(t, project.Git.Fingerprint, "SHA256:abc123")
+	assertEqual(t, project.VM.Mode, "dedicated")
+	assertEqual(t, project.VM.Name, "api-dev")
+
+	for _, expected := range []string{"Available SSH keys:", "Repository URL", "imported project api"} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("expected output to contain %q:\n%s", expected, output.String())
+		}
+	}
+}
+
+func TestRunProjectImportInteractiveRejectsKeyCreationForNow(t *testing.T) {
+	t.Parallel()
+
+	var output bytes.Buffer
+	err := runProjectImportInteractiveWithDeps(
+		args{},
+		&fakeGitImporter{},
+		&fakeFingerprinter{},
+		prompt.New(strings.NewReader("no\n"), &output),
+	)
+	if err == nil {
+		t.Fatal("expected key creation to fail")
+	}
+	if !strings.Contains(err.Error(), "SSH key creation is not implemented yet") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestRunProjectImportRejectsNonEmptyDestination(t *testing.T) {
 	t.Parallel()
 
@@ -193,9 +290,14 @@ type fakeFingerprinter struct {
 	identityFile string
 	fingerprint  string
 	err          error
+	keys         []sshkeys.KeyCandidate
 }
 
 func (f *fakeFingerprinter) FingerprintForIdentity(identityFile string) (string, error) {
 	f.identityFile = identityFile
 	return f.fingerprint, f.err
+}
+
+func (f *fakeFingerprinter) List() ([]sshkeys.KeyCandidate, error) {
+	return f.keys, f.err
 }

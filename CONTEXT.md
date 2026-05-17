@@ -64,6 +64,7 @@ _Avoid_: dependance coeur obligatoire
 - `yard start` orchestre la **Dev VM** et les **Services** configures sans doubler les **Processes** deja actifs.
 - `yard stop` arrete les **Services**; une **Dev VM** partagee reste active sauf demande explicite avec `--vm`.
 - `yard init` cree une config projet vendor-neutral avec **Services**, sans secrets ni adapters obligatoires; l'ecrasement requiert `--force`.
+- `yard project import` sans arguments lance un wizard de selection de cle SSH existante; le mode non interactif reste disponible via arguments.
 - `yard project import` teste l'acces au repo avec une identite SSH host-side, clone dans un dossier vide ou manquant, puis enregistre le **Project** dans le **Project Registry**.
 - Les commandes interactives doivent toujours conserver un mode non interactif equivalent via arguments ou fichiers.
 

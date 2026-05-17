@@ -1287,6 +1287,7 @@ Usage:
   go run ./cmd/yard config [project-name] [--project <path>]
   go run ./cmd/yard project add
   go run ./cmd/yard project add <name> <path> [--config <path>] [--vm-mode shared|dedicated] [--vm-name <name>]
+  go run ./cmd/yard project import
   go run ./cmd/yard project import <name> --repo <url> --identity <path> --path <path>
   go run ./cmd/yard project list
   go run ./cmd/yard use <name>
