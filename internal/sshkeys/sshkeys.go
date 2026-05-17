@@ -107,6 +107,14 @@ func (d Detector) List() ([]KeyCandidate, error) {
 	return rows, nil
 }
 
+func (d Detector) FingerprintForIdentity(identityFile string) (string, error) {
+	fingerprint, _, err := d.fingerprint(identityFile + ".pub")
+	if err != nil {
+		return "", err
+	}
+	return fingerprint, nil
+}
+
 func (d Detector) listAgentKeys() ([]agentKey, error) {
 	output, err := d.Runner.Output("ssh-add", "-l")
 	if err != nil && strings.TrimSpace(string(output)) == "" {

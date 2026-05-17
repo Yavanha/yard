@@ -64,6 +64,7 @@ _Avoid_: dependance coeur obligatoire
 - `yard start` orchestre la **Dev VM** et les **Services** configures sans doubler les **Processes** deja actifs.
 - `yard stop` arrete les **Services**; une **Dev VM** partagee reste active sauf demande explicite avec `--vm`.
 - `yard init` cree une config projet vendor-neutral avec **Services**, sans secrets ni adapters obligatoires; l'ecrasement requiert `--force`.
+- `yard project import` teste l'acces au repo avec une identite SSH host-side, clone dans un dossier vide ou manquant, puis enregistre le **Project** dans le **Project Registry**.
 - Les commandes interactives doivent toujours conserver un mode non interactif equivalent via arguments ou fichiers.
 
 ## Example dialogue
@@ -89,6 +90,7 @@ _Avoid_: dependance coeur obligatoire
 - "backend" n'est pas un type special de **Project**; c'est souvent un **Process** dans le meme repo, ou un autre **Project** compose plus tard dans un **Environment** multi-project.
 - `services` decrit des commandes generiques; les choix NestJS, PHP, Vite, Supabase ou autres restent dans la commande/adapters, pas dans le coeur.
 - "GitHub org" est une capacite de **Repository Source**, pas une hypothese hardcodee dans le coeur de Yard.
+- L'identite SSH choisie pour un import est un choix host-side; elle ne doit pas etre copiee dans la **Dev VM** ni dans `.devctl.yml`.
 - Supabase, Infisical et Vite sont des **Adapters** optionnels, pas des preconditions pour tous les **Projects**.
 
 ## Registry shape

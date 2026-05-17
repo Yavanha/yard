@@ -150,6 +150,34 @@ func TestListReturnsFingerprintError(t *testing.T) {
 	}
 }
 
+func TestFingerprintForIdentityUsesPublicKey(t *testing.T) {
+	t.Parallel()
+
+	sshDir := filepath.Join(t.TempDir(), ".ssh")
+	if err := os.MkdirAll(sshDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	publicKey := filepath.Join(sshDir, "id_ed25519.pub")
+	if err := os.WriteFile(publicKey, []byte("ssh-ed25519 AAAA api@example.com\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	runner := &fakeRunner{
+		outputs: map[string]fakeOutput{
+			"ssh-keygen -lf " + publicKey: {
+				content: []byte("256 SHA256:api api@example.com (ED25519)\n"),
+			},
+		},
+	}
+
+	fingerprint, err := NewDetector(runner, sshDir).FingerprintForIdentity(strings.TrimSuffix(publicKey, ".pub"))
+	if err != nil {
+		t.Fatalf("FingerprintForIdentity returned error: %v", err)
+	}
+	assertEqual(t, fingerprint, "SHA256:api")
+}
+
 type fakeRunner struct {
 	outputs map[string]fakeOutput
 }

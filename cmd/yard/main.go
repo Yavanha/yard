@@ -25,10 +25,12 @@ type args struct {
 	subcommand   string
 	positionals  []string
 	projectPath  string
+	importPath   string
 	registryPath string
 	configPath   string
 	repoURL      string
 	repoDir      string
+	identityFile string
 	vmMode       string
 	vmName       string
 	vmProvider   string
@@ -116,6 +118,12 @@ func parseArgs(argv []string) (args, error) {
 			}
 			parsed.projectPath = argv[index+1]
 			index++
+		case "--path":
+			if index+1 >= len(argv) {
+				return args{}, errors.New("--path requires a path")
+			}
+			parsed.importPath = argv[index+1]
+			index++
 		case "--registry":
 			if index+1 >= len(argv) {
 				return args{}, errors.New("--registry requires a path")
@@ -139,6 +147,12 @@ func parseArgs(argv []string) (args, error) {
 				return args{}, errors.New("--repo-dir requires a path")
 			}
 			parsed.repoDir = argv[index+1]
+			index++
+		case "--identity":
+			if index+1 >= len(argv) {
+				return args{}, errors.New("--identity requires a path")
+			}
+			parsed.identityFile = argv[index+1]
 			index++
 		case "--vm-mode":
 			if index+1 >= len(argv) {
@@ -315,6 +329,8 @@ func runProject(parsed args) error {
 		return runProjectAdd(parsed)
 	case "list":
 		return runProjectList(parsed)
+	case "import":
+		return runProjectImport(parsed)
 	case "use":
 		return runUse(args{
 			positionals:  parsed.positionals,
@@ -322,7 +338,7 @@ func runProject(parsed args) error {
 		})
 	default:
 		if parsed.subcommand == "" {
-			return errors.New("project requires a subcommand: add, list, or use")
+			return errors.New("project requires a subcommand: add, import, list, or use")
 		}
 		return fmt.Errorf("unknown project subcommand: %s", parsed.subcommand)
 	}
@@ -1271,6 +1287,7 @@ Usage:
   go run ./cmd/yard config [project-name] [--project <path>]
   go run ./cmd/yard project add
   go run ./cmd/yard project add <name> <path> [--config <path>] [--vm-mode shared|dedicated] [--vm-name <name>]
+  go run ./cmd/yard project import <name> --repo <url> --identity <path> --path <path>
   go run ./cmd/yard project list
   go run ./cmd/yard use <name>
   go run ./cmd/yard init [project-name] [--yes] [--force]

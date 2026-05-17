@@ -169,6 +169,7 @@ Registre projets host:
 ```bash
 go run ./cmd/yard project add
 go run ./cmd/yard project add example /path/to/repo
+go run ./cmd/yard project import example --repo git@github.com:acme/example.git --identity ~/.ssh/yard_acme --path /path/to/repo
 go run ./cmd/yard project list
 go run ./cmd/yard use example
 go run ./cmd/yard init example
@@ -203,4 +204,5 @@ Notes de cadrage:
 - `start` cree/demarre la VM puis lance les services sans doubler les processus deja ouverts; `stop` coupe les services et n'eteint une VM partagee qu'avec `--vm`.
 - `init` genere une config projet sans secrets ni adapters obligatoires; `--yes` donne le mode non interactif et `--force` est requis pour ecraser.
 - `ssh keys` liste les cles publiques detectees cote host avec fingerprint, commentaire et presence dans l'agent SSH, sans lire de cle privee.
+- `project import` teste l'acces Git avec `GIT_SSH_COMMAND`, refuse un dossier cible non vide, clone, puis enregistre le projet et son identite Git dans le registre host.
 - La decouverte GitHub/orgs doit rester cote host, probablement via `gh`, pour reutiliser les credentials locaux sans les persister dans la VM.
