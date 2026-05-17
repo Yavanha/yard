@@ -12,8 +12,11 @@ import (
 )
 
 const (
-	DefaultVMMode = "shared"
-	DefaultVMName = "yard-shared"
+	DefaultRuntimeType = "local-vm"
+	RuntimeTypeLocalVM = "local-vm"
+	RuntimeTypeRemote  = "remote-server"
+	DefaultVMMode      = "shared"
+	DefaultVMName      = "yard-shared"
 )
 
 type Registry struct {
@@ -22,15 +25,20 @@ type Registry struct {
 }
 
 type Project struct {
-	Path   string
-	Config string
-	Git    Git
-	VM     VM
+	Path    string
+	Config  string
+	Git     Git
+	Runtime RuntimeTarget
+	VM      VM
 }
 
 type Git struct {
 	IdentityFile string
 	Fingerprint  string
+}
+
+type RuntimeTarget struct {
+	Type string
 }
 
 type VM struct {
@@ -106,6 +114,17 @@ func (reg Registry) Use(name string) (Registry, error) {
 	return reg, nil
 }
 
+func (reg Registry) Remove(name string) (Registry, error) {
+	if _, ok := reg.Projects[name]; !ok {
+		return Registry{}, fmt.Errorf("unknown project: %s", name)
+	}
+	delete(reg.Projects, name)
+	if reg.CurrentProject == name {
+		reg.CurrentProject = ""
+	}
+	return reg, nil
+}
+
 func (reg Registry) Resolve(name string) (string, Project, error) {
 	if name == "" {
 		if reg.CurrentProject == "" {
@@ -136,6 +155,7 @@ func Parse(content []byte) (Registry, error) {
 	var currentProject string
 	inProjects := false
 	inGit := false
+	inRuntime := false
 	inVM := false
 	lineNumber := 0
 
@@ -149,6 +169,7 @@ func Parse(content []byte) (Registry, error) {
 		switch {
 		case !strings.HasPrefix(line, " "):
 			inGit = false
+			inRuntime = false
 			inVM = false
 			key, value, ok := splitKeyValue(line)
 			if !ok {
@@ -180,6 +201,7 @@ func Parse(content []byte) (Registry, error) {
 			}
 			currentProject = key
 			inGit = false
+			inRuntime = false
 			inVM = false
 			reg.Projects[currentProject] = Project{}
 
@@ -196,22 +218,33 @@ func Parse(content []byte) (Registry, error) {
 			case "path":
 				project.Path = value
 				inGit = false
+				inRuntime = false
 				inVM = false
 			case "config":
 				project.Config = value
 				inGit = false
+				inRuntime = false
 				inVM = false
 			case "git":
 				if value != "" {
 					return Registry{}, unsupportedLineError(lineNumber, line)
 				}
 				inGit = true
+				inRuntime = false
+				inVM = false
+			case "runtime":
+				if value != "" {
+					return Registry{}, unsupportedLineError(lineNumber, line)
+				}
+				inGit = false
+				inRuntime = true
 				inVM = false
 			case "vm":
 				if value != "" {
 					return Registry{}, unsupportedLineError(lineNumber, line)
 				}
 				inGit = false
+				inRuntime = false
 				inVM = true
 			default:
 				return Registry{}, unsupportedLineError(lineNumber, line)
@@ -219,7 +252,7 @@ func Parse(content []byte) (Registry, error) {
 			reg.Projects[currentProject] = project
 
 		case strings.HasPrefix(line, "      ") && !strings.HasPrefix(line, "        "):
-			if currentProject == "" || (!inGit && !inVM) {
+			if currentProject == "" || (!inGit && !inRuntime && !inVM) {
 				return Registry{}, unsupportedLineError(lineNumber, line)
 			}
 			key, value, ok := splitKeyValue(strings.TrimPrefix(line, "      "))
@@ -233,6 +266,13 @@ func Parse(content []byte) (Registry, error) {
 					project.Git.IdentityFile = value
 				case "fingerprint":
 					project.Git.Fingerprint = value
+				default:
+					return Registry{}, unsupportedLineError(lineNumber, line)
+				}
+			} else if inRuntime {
+				switch key {
+				case "type":
+					project.Runtime.Type = value
 				default:
 					return Registry{}, unsupportedLineError(lineNumber, line)
 				}
@@ -300,13 +340,23 @@ func Marshal(reg Registry) []byte {
 				builder.WriteString("\n")
 			}
 		}
-		builder.WriteString("    vm:\n")
-		builder.WriteString("      mode: ")
-		builder.WriteString(project.VM.Mode)
+		builder.WriteString("    runtime:\n")
+		builder.WriteString("      type: ")
+		builder.WriteString(project.Runtime.Type)
 		builder.WriteString("\n")
-		builder.WriteString("      name: ")
-		builder.WriteString(project.VM.Name)
-		builder.WriteString("\n")
+		if project.Runtime.Type == RuntimeTypeLocalVM || project.VM.Mode != "" || project.VM.Name != "" {
+			builder.WriteString("    vm:\n")
+			if project.VM.Mode != "" {
+				builder.WriteString("      mode: ")
+				builder.WriteString(project.VM.Mode)
+				builder.WriteString("\n")
+			}
+			if project.VM.Name != "" {
+				builder.WriteString("      name: ")
+				builder.WriteString(project.VM.Name)
+				builder.WriteString("\n")
+			}
+		}
 	}
 	return []byte(builder.String())
 }
@@ -336,18 +386,27 @@ func normalizeProject(project Project) (Project, error) {
 		project.Git.IdentityFile = identityFile
 	}
 
-	if project.VM.Mode == "" {
-		project.VM.Mode = DefaultVMMode
+	if project.Runtime.Type == "" {
+		project.Runtime.Type = DefaultRuntimeType
 	}
-	if project.VM.Mode != "shared" && project.VM.Mode != "dedicated" {
-		return Project{}, fmt.Errorf("unsupported vm.mode: %s", project.VM.Mode)
+	if project.Runtime.Type != RuntimeTypeLocalVM && project.Runtime.Type != RuntimeTypeRemote {
+		return Project{}, fmt.Errorf("unsupported runtime.type: %s", project.Runtime.Type)
 	}
 
-	if project.VM.Name == "" {
-		if project.VM.Mode == "shared" {
-			project.VM.Name = DefaultVMName
-		} else {
-			project.VM.Name = filepath.Base(project.Path) + "-dev"
+	if project.Runtime.Type == RuntimeTypeLocalVM {
+		if project.VM.Mode == "" {
+			project.VM.Mode = DefaultVMMode
+		}
+		if project.VM.Mode != "shared" && project.VM.Mode != "dedicated" {
+			return Project{}, fmt.Errorf("unsupported vm.mode: %s", project.VM.Mode)
+		}
+
+		if project.VM.Name == "" {
+			if project.VM.Mode == "shared" {
+				project.VM.Name = DefaultVMName
+			} else {
+				project.VM.Name = filepath.Base(project.Path) + "-dev"
+			}
 		}
 	}
 

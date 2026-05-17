@@ -6,14 +6,12 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"text/tabwriter"
 
 	"yard/internal/config"
 	"yard/internal/process"
-	"yard/internal/prompt"
 	"yard/internal/provider/lima"
 	"yard/internal/registry"
 )
@@ -31,6 +29,7 @@ type args struct {
 	repoURL      string
 	repoDir      string
 	identityFile string
+	runtimeType  string
 	vmMode       string
 	vmName       string
 	vmProvider   string
@@ -153,6 +152,12 @@ func parseArgs(argv []string) (args, error) {
 				return args{}, errors.New("--identity requires a path")
 			}
 			parsed.identityFile = argv[index+1]
+			index++
+		case "--runtime":
+			if index+1 >= len(argv) {
+				return args{}, errors.New("--runtime requires a value")
+			}
+			parsed.runtimeType = argv[index+1]
 			index++
 		case "--vm-mode":
 			if index+1 >= len(argv) {
@@ -323,207 +328,6 @@ func resolvedConfigPath(parsed args) (string, error) {
 	return project.Config, nil
 }
 
-func runProject(parsed args) error {
-	switch parsed.subcommand {
-	case "add":
-		return runProjectAdd(parsed)
-	case "list":
-		return runProjectList(parsed)
-	case "import":
-		return runProjectImport(parsed)
-	case "use":
-		return runUse(args{
-			positionals:  parsed.positionals,
-			registryPath: parsed.registryPath,
-		})
-	default:
-		if parsed.subcommand == "" {
-			return errors.New("project requires a subcommand: add, import, list, or use")
-		}
-		return fmt.Errorf("unknown project subcommand: %s", parsed.subcommand)
-	}
-}
-
-func runProjectAdd(parsed args) error {
-	if len(parsed.positionals) == 0 {
-		return runProjectAddInteractive(parsed, prompt.New(os.Stdin, os.Stdout))
-	}
-	if len(parsed.positionals) != 2 {
-		return errors.New("usage: project add [<name> <path>]")
-	}
-
-	path, err := resolvedRegistryPath(parsed)
-	if err != nil {
-		return err
-	}
-	reg, err := registry.Load(path)
-	if err != nil {
-		return err
-	}
-
-	reg, err = reg.Add(parsed.positionals[0], registry.Project{
-		Path:   parsed.positionals[1],
-		Config: parsed.configPath,
-		VM: registry.VM{
-			Mode: parsed.vmMode,
-			Name: parsed.vmName,
-		},
-	})
-	if err != nil {
-		return err
-	}
-	if err := registry.Save(path, reg); err != nil {
-		return err
-	}
-
-	fmt.Printf("added project %s\n", parsed.positionals[0])
-	return nil
-}
-
-func runProjectAddInteractive(parsed args, prompter prompt.Prompter) error {
-	defaultPath, err := os.Getwd()
-	if err != nil {
-		return err
-	}
-
-	projectPath, err := prompter.Ask("Repo path", defaultPath, true)
-	if err != nil {
-		return err
-	}
-	absProjectPath, err := filepath.Abs(projectPath)
-	if err != nil {
-		return err
-	}
-
-	defaultName := filepath.Base(absProjectPath)
-	name, err := prompter.Ask("Project alias", defaultName, true)
-	if err != nil {
-		return err
-	}
-
-	defaultConfig := filepath.Join(absProjectPath, config.FileName)
-	configPath := parsed.configPath
-	if configPath == "" {
-		configPath, err = prompter.Ask("Config path", defaultConfig, false)
-		if err != nil {
-			return err
-		}
-	}
-
-	vmMode := parsed.vmMode
-	if vmMode == "" {
-		vmMode, err = prompter.Ask("VM mode (shared/dedicated)", registry.DefaultVMMode, true)
-		if err != nil {
-			return err
-		}
-	}
-	if vmMode != "shared" && vmMode != "dedicated" {
-		return fmt.Errorf("unsupported vm.mode: %s", vmMode)
-	}
-
-	defaultVMName := registry.DefaultVMName
-	if vmMode == "dedicated" {
-		defaultVMName = filepath.Base(absProjectPath) + "-dev"
-	}
-	vmName := parsed.vmName
-	if vmName == "" {
-		vmName, err = prompter.Ask("VM name", defaultVMName, true)
-		if err != nil {
-			return err
-		}
-	}
-
-	path, err := resolvedRegistryPath(parsed)
-	if err != nil {
-		return err
-	}
-	reg, err := registry.Load(path)
-	if err != nil {
-		return err
-	}
-
-	next, err := reg.Add(name, registry.Project{
-		Path:   absProjectPath,
-		Config: configPath,
-		VM: registry.VM{
-			Mode: vmMode,
-			Name: vmName,
-		},
-	})
-	if err != nil {
-		return err
-	}
-
-	fmt.Fprintln(prompter.Writer())
-	fmt.Fprintln(prompter.Writer(), "Registry preview:")
-	fmt.Fprint(prompter.Writer(), string(registry.Marshal(next)))
-
-	confirmed, err := prompter.Confirm("Write registry", true)
-	if err != nil {
-		return err
-	}
-	if !confirmed {
-		fmt.Fprintln(prompter.Writer(), "Aborted.")
-		return nil
-	}
-
-	if err := registry.Save(path, next); err != nil {
-		return err
-	}
-
-	fmt.Printf("added project %s\n", name)
-	return nil
-}
-
-func runProjectList(parsed args) error {
-	path, err := resolvedRegistryPath(parsed)
-	if err != nil {
-		return err
-	}
-	reg, err := registry.Load(path)
-	if err != nil {
-		return err
-	}
-
-	writer := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(writer, "CURRENT\tNAME\tPATH\tVM_MODE\tVM_NAME")
-	for _, name := range reg.ProjectNames() {
-		project := reg.Projects[name]
-		current := ""
-		if reg.CurrentProject == name {
-			current = "*"
-		}
-		fmt.Fprintf(writer, "%s\t%s\t%s\t%s\t%s\n", current, name, project.Path, project.VM.Mode, project.VM.Name)
-	}
-	return writer.Flush()
-}
-
-func runUse(parsed args) error {
-	if len(parsed.positionals) != 1 {
-		return errors.New("usage: use <name>")
-	}
-
-	path, err := resolvedRegistryPath(parsed)
-	if err != nil {
-		return err
-	}
-	reg, err := registry.Load(path)
-	if err != nil {
-		return err
-	}
-
-	reg, err = reg.Use(parsed.positionals[0])
-	if err != nil {
-		return err
-	}
-	if err := registry.Save(path, reg); err != nil {
-		return err
-	}
-
-	fmt.Printf("current project: %s\n", parsed.positionals[0])
-	return nil
-}
-
 func runVM(parsed args) error {
 	switch parsed.subcommand {
 	case "list":
@@ -670,6 +474,9 @@ func runExec(parsed args) error {
 	}
 	_, project, err := resolvedRegistryProject(parsed, name)
 	if err != nil {
+		return err
+	}
+	if err := ensureLocalVMRuntime(project); err != nil {
 		return err
 	}
 
@@ -878,6 +685,7 @@ func runStop(parsed args) error {
 type statusRow struct {
 	Current bool
 	Project string
+	Runtime string
 	VM      string
 	VMState string
 	VMMode  string
@@ -962,6 +770,9 @@ func resolvedProjectConfig(parsed args) (config.ProjectConfig, error) {
 		if err != nil {
 			return config.ProjectConfig{}, err
 		}
+		if err := ensureLocalVMRuntime(project); err != nil {
+			return config.ProjectConfig{}, err
+		}
 		projectPath = project.Config
 		registryVMName = project.VM.Name
 	} else if len(parsed.positionals) > 0 {
@@ -992,6 +803,9 @@ func resolvedRuntimeProject(parsed args, name string) (string, registry.Project,
 	if err != nil {
 		return "", registry.Project{}, config.ProjectConfig{}, err
 	}
+	if err := ensureLocalVMRuntime(project); err != nil {
+		return "", registry.Project{}, config.ProjectConfig{}, err
+	}
 
 	loaded, err := config.Load(project.Config, workDir)
 	if err != nil {
@@ -1005,6 +819,13 @@ func resolvedRuntimeProject(parsed args, name string) (string, registry.Project,
 		projectConfig.VMName = project.VM.Name
 	}
 	return projectName, project, projectConfig, nil
+}
+
+func ensureLocalVMRuntime(project registry.Project) error {
+	if project.Runtime.Type != registry.RuntimeTypeLocalVM {
+		return fmt.Errorf("runtime target %s is not supported yet", project.Runtime.Type)
+	}
+	return nil
 }
 
 func ensureProjectVM(client lima.Client, projectConfig config.ProjectConfig) error {
@@ -1189,12 +1010,15 @@ func buildStatusRows(reg registry.Registry, instances []lima.Instance, filter st
 	for _, name := range names {
 		project := reg.Projects[name]
 		vmState := "missing"
-		if instance, ok := byVM[project.VM.Name]; ok {
+		if project.Runtime.Type != registry.RuntimeTypeLocalVM {
+			vmState = "unsupported"
+		} else if instance, ok := byVM[project.VM.Name]; ok {
 			vmState = instance.Status
 		}
 		rows = append(rows, statusRow{
 			Current: reg.CurrentProject == name,
 			Project: name,
+			Runtime: project.Runtime.Type,
 			VM:      project.VM.Name,
 			VMState: vmState,
 			VMMode:  project.VM.Mode,
@@ -1207,7 +1031,7 @@ func buildStatusRows(reg registry.Registry, instances []lima.Instance, filter st
 
 func writeStatusRows(output io.Writer, rows []statusRow) error {
 	writer := tabwriter.NewWriter(output, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(writer, "CURRENT\tPROJECT\tVM\tVM_STATE\tVM_MODE\tCONFIG\tPATH")
+	fmt.Fprintln(writer, "CURRENT\tPROJECT\tRUNTIME\tVM\tVM_STATE\tVM_MODE\tCONFIG\tPATH")
 	for _, row := range rows {
 		current := ""
 		if row.Current {
@@ -1215,12 +1039,13 @@ func writeStatusRows(output io.Writer, rows []statusRow) error {
 		}
 		fmt.Fprintf(
 			writer,
-			"%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			"%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			current,
 			row.Project,
-			row.VM,
+			formatEmpty(row.Runtime),
+			formatEmpty(row.VM),
 			row.VMState,
-			row.VMMode,
+			formatEmpty(row.VMMode),
 			row.Config,
 			row.Path,
 		)
@@ -1259,6 +1084,9 @@ func resolvedVMName(parsed args) (string, error) {
 
 	_, project, err := resolvedRegistryProject(parsed, target)
 	if err == nil {
+		if err := ensureLocalVMRuntime(project); err != nil {
+			return "", err
+		}
 		return project.VM.Name, nil
 	}
 	if target != "" {
@@ -1286,10 +1114,12 @@ Usage:
   go run ./cmd/yard --help
   go run ./cmd/yard config [project-name] [--project <path>]
   go run ./cmd/yard project add
-  go run ./cmd/yard project add <name> <path> [--config <path>] [--vm-mode shared|dedicated] [--vm-name <name>]
+  go run ./cmd/yard project add <name> <path> [--config <path>] [--runtime local-vm|remote-server] [--vm-mode shared|dedicated] [--vm-name <name>]
   go run ./cmd/yard project import
-  go run ./cmd/yard project import <name> --repo <url> --identity <path> --path <path>
+  go run ./cmd/yard project import <name> --repo <url> --identity <path> --path <path> [--runtime local-vm|remote-server]
+  go run ./cmd/yard project inspect [name]
   go run ./cmd/yard project list
+  go run ./cmd/yard project remove <name>
   go run ./cmd/yard use <name>
   go run ./cmd/yard init [project-name] [--yes] [--force]
   go run ./cmd/yard vm list

@@ -17,9 +17,27 @@ func TestAddProjectDefaults(t *testing.T) {
 
 	project := reg.Projects["example"]
 	assertEqual(t, reg.CurrentProject, "example")
+	assertEqual(t, project.Runtime.Type, "local-vm")
 	assertEqual(t, project.Config, "/tmp/example/.devctl.yml")
 	assertEqual(t, project.VM.Mode, "shared")
 	assertEqual(t, project.VM.Name, "yard-shared")
+}
+
+func TestAddProjectAcceptsRemoteRuntimeTarget(t *testing.T) {
+	t.Parallel()
+
+	reg, err := New().Add("example", Project{
+		Path:    "/tmp/example",
+		Runtime: RuntimeTarget{Type: "remote-server"},
+	})
+	if err != nil {
+		t.Fatalf("Add returned error: %v", err)
+	}
+
+	project := reg.Projects["example"]
+	assertEqual(t, project.Runtime.Type, "remote-server")
+	assertEqual(t, project.VM.Mode, "")
+	assertEqual(t, project.VM.Name, "")
 }
 
 func TestAddDedicatedProjectDefaultsVMName(t *testing.T) {
@@ -42,6 +60,55 @@ func TestUseRejectsUnknownProject(t *testing.T) {
 	t.Parallel()
 
 	_, err := New().Use("missing")
+	if err == nil {
+		t.Fatal("expected unknown project to fail")
+	}
+}
+
+func TestRemoveProject(t *testing.T) {
+	t.Parallel()
+
+	reg, err := New().Add("example", Project{Path: "/tmp/example"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg, err = reg.Add("api", Project{Path: "/tmp/api"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	reg, err = reg.Remove("api")
+	if err != nil {
+		t.Fatalf("Remove returned error: %v", err)
+	}
+	if _, ok := reg.Projects["api"]; ok {
+		t.Fatal("expected api to be removed")
+	}
+	assertEqual(t, reg.CurrentProject, "example")
+}
+
+func TestRemoveCurrentProjectClearsCurrent(t *testing.T) {
+	t.Parallel()
+
+	reg, err := New().Add("example", Project{Path: "/tmp/example"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg, err = reg.Remove("example")
+	if err != nil {
+		t.Fatalf("Remove returned error: %v", err)
+	}
+
+	assertEqual(t, reg.CurrentProject, "")
+	if len(reg.Projects) != 0 {
+		t.Fatalf("expected no projects, got %#v", reg.Projects)
+	}
+}
+
+func TestRemoveRejectsUnknownProject(t *testing.T) {
+	t.Parallel()
+
+	_, err := New().Remove("missing")
 	if err == nil {
 		t.Fatal("expected unknown project to fail")
 	}
@@ -103,6 +170,8 @@ projects:
     git:
       identity_file: /tmp/ssh/yard_acme_ed25519
       fingerprint: SHA256:abc123
+    runtime:
+      type: remote-server
     vm:
       mode: dedicated
       name: example-vm
@@ -117,6 +186,7 @@ projects:
 	assertEqual(t, project.Config, "/tmp/example/custom.yml")
 	assertEqual(t, project.Git.IdentityFile, "/tmp/ssh/yard_acme_ed25519")
 	assertEqual(t, project.Git.Fingerprint, "SHA256:abc123")
+	assertEqual(t, project.Runtime.Type, "remote-server")
 	assertEqual(t, project.VM.Mode, "dedicated")
 	assertEqual(t, project.VM.Name, "example-vm")
 }
@@ -167,10 +237,37 @@ func TestMarshalRegistryIncludesGitIdentity(t *testing.T) {
 		"    git:\n",
 		"      identity_file: /tmp/ssh/yard_acme_ed25519\n",
 		"      fingerprint: SHA256:abc123\n",
+		"    runtime:\n",
+		"      type: local-vm\n",
 	} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("expected output to contain %q:\n%s", expected, output)
 		}
+	}
+}
+
+func TestMarshalRemoteRuntimeOmitsVMDefaults(t *testing.T) {
+	t.Parallel()
+
+	reg, err := New().Add("api", Project{
+		Path:    "/tmp/api",
+		Runtime: RuntimeTarget{Type: "remote-server"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	output := string(Marshal(reg))
+	for _, expected := range []string{
+		"    runtime:\n",
+		"      type: remote-server\n",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("expected output to contain %q:\n%s", expected, output)
+		}
+	}
+	if strings.Contains(output, "    vm:\n") {
+		t.Fatalf("expected remote runtime output to omit vm defaults:\n%s", output)
 	}
 }
 

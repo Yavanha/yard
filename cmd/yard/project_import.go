@@ -45,6 +45,7 @@ type projectImportOptions struct {
 	ConfigPath   string
 	IdentityFile string
 	Fingerprint  string
+	RuntimeType  string
 	VMMode       string
 	VMName       string
 }
@@ -119,7 +120,7 @@ func runProjectImportInteractiveWithDepsAndUploader(parsed args, importer gitImp
 	if err != nil {
 		return err
 	}
-	if sshKeyAvailability == "not sure" {
+	if sshKeyAvailability == "yes" || sshKeyAvailability == "not sure" {
 		return executeProjectImportWithFallback(parsed, options, importer, keys, uploader, prompter)
 	}
 	return executeProjectImport(parsed, options, importer, prompter.Writer())
@@ -178,26 +179,45 @@ func askProjectImportOptions(parsed args, prompter prompt.Prompter) (projectImpo
 		return projectImportOptions{}, err
 	}
 
-	vmMode := parsed.vmMode
-	if vmMode == "" {
-		vmMode, err = prompter.Ask("VM mode (shared/dedicated)", registry.DefaultVMMode, true)
+	runtimeType := parsed.runtimeType
+	if runtimeType == "" {
+		runtimeType, err = prompter.Ask("Runtime target (local-vm/remote-server)", registry.DefaultRuntimeType, true)
 		if err != nil {
 			return projectImportOptions{}, err
 		}
 	}
-	if vmMode != "shared" && vmMode != "dedicated" {
-		return projectImportOptions{}, fmt.Errorf("unsupported vm.mode: %s", vmMode)
+	runtimeType, err = resolvedProjectRuntimeType(runtimeType)
+	if err != nil {
+		return projectImportOptions{}, err
+	}
+	if runtimeType == registry.RuntimeTypeRemote && (parsed.vmMode != "" || parsed.vmName != "") {
+		return projectImportOptions{}, errors.New("--vm-mode and --vm-name require --runtime local-vm")
 	}
 
-	defaultVMName := registry.DefaultVMName
-	if vmMode == "dedicated" {
-		defaultVMName = filepath.Base(destination) + "-dev"
-	}
-	vmName := parsed.vmName
-	if vmName == "" {
-		vmName, err = prompter.Ask("VM name", defaultVMName, true)
-		if err != nil {
-			return projectImportOptions{}, err
+	vmMode := ""
+	vmName := ""
+	if runtimeType == registry.RuntimeTypeLocalVM {
+		vmMode = parsed.vmMode
+		if vmMode == "" {
+			vmMode, err = prompter.Ask("VM mode (shared/dedicated)", registry.DefaultVMMode, true)
+			if err != nil {
+				return projectImportOptions{}, err
+			}
+		}
+		if vmMode != "shared" && vmMode != "dedicated" {
+			return projectImportOptions{}, fmt.Errorf("unsupported vm.mode: %s", vmMode)
+		}
+
+		defaultVMName := registry.DefaultVMName
+		if vmMode == "dedicated" {
+			defaultVMName = filepath.Base(destination) + "-dev"
+		}
+		vmName = parsed.vmName
+		if vmName == "" {
+			vmName, err = prompter.Ask("VM name", defaultVMName, true)
+			if err != nil {
+				return projectImportOptions{}, err
+			}
 		}
 	}
 
@@ -206,6 +226,7 @@ func askProjectImportOptions(parsed args, prompter prompt.Prompter) (projectImpo
 		RepoURL:     repoURL,
 		Destination: destination,
 		ConfigPath:  configPath,
+		RuntimeType: runtimeType,
 		VMMode:      vmMode,
 		VMName:      vmName,
 	}, nil
@@ -374,6 +395,7 @@ func runProjectImportWithDeps(parsed args, importer gitImporter, fingerprinter i
 		Destination:  parsed.importPath,
 		ConfigPath:   parsed.configPath,
 		IdentityFile: parsed.identityFile,
+		RuntimeType:  parsed.runtimeType,
 		VMMode:       parsed.vmMode,
 		VMName:       parsed.vmName,
 	}, fingerprinter)
@@ -395,6 +417,15 @@ func resolveProjectImportOptions(options projectImportOptions, fingerprinter ide
 	}
 	if options.Destination == "" {
 		return projectImportOptions{}, errors.New("--path is required")
+	}
+
+	runtimeType, err := resolvedProjectRuntimeType(options.RuntimeType)
+	if err != nil {
+		return projectImportOptions{}, err
+	}
+	options.RuntimeType = runtimeType
+	if options.RuntimeType == registry.RuntimeTypeRemote && (options.VMMode != "" || options.VMName != "") {
+		return projectImportOptions{}, errors.New("--vm-mode and --vm-name require --runtime local-vm")
 	}
 
 	destination, err := expandHomePath(options.Destination)
@@ -470,8 +501,9 @@ func finishProjectImport(parsed args, options projectImportOptions, importer git
 		return err
 	}
 	reg, err = reg.Add(options.Name, registry.Project{
-		Path:   options.Destination,
-		Config: options.ConfigPath,
+		Path:    options.Destination,
+		Config:  options.ConfigPath,
+		Runtime: registry.RuntimeTarget{Type: options.RuntimeType},
 		Git: registry.Git{
 			IdentityFile: options.IdentityFile,
 			Fingerprint:  options.Fingerprint,

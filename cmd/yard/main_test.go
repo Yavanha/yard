@@ -14,112 +14,6 @@ import (
 	"yard/internal/registry"
 )
 
-func TestParseProjectAddArgs(t *testing.T) {
-	t.Parallel()
-
-	parsed, err := parseArgs([]string{
-		"project",
-		"add",
-		"example",
-		"/tmp/example",
-		"--vm-mode",
-		"dedicated",
-		"--vm-name",
-		"example-vm",
-	})
-	if err != nil {
-		t.Fatalf("parseArgs returned error: %v", err)
-	}
-
-	assertEqual(t, parsed.command, "project")
-	assertEqual(t, parsed.subcommand, "add")
-	assertEqual(t, parsed.positionals[0], "example")
-	assertEqual(t, parsed.positionals[1], "/tmp/example")
-	assertEqual(t, parsed.vmMode, "dedicated")
-	assertEqual(t, parsed.vmName, "example-vm")
-}
-
-func TestRunProjectAddInteractive(t *testing.T) {
-	t.Parallel()
-
-	registryPath := filepath.Join(t.TempDir(), "config.yaml")
-	repoPath := filepath.Join(t.TempDir(), "repo")
-	if err := os.MkdirAll(repoPath, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	var output bytes.Buffer
-	input := strings.Join([]string{
-		repoPath,
-		"api",
-		"",
-		"dedicated",
-		"api-dev",
-		"yes",
-		"",
-	}, "\n")
-
-	err := runProjectAddInteractive(args{registryPath: registryPath}, prompt.New(strings.NewReader(input), &output))
-	if err != nil {
-		t.Fatalf("runProjectAddInteractive returned error: %v", err)
-	}
-
-	reg, err := registry.Load(registryPath)
-	if err != nil {
-		t.Fatalf("registry.Load returned error: %v", err)
-	}
-	project := reg.Projects["api"]
-	assertEqual(t, project.Path, repoPath)
-	assertEqual(t, project.Config, filepath.Join(repoPath, ".devctl.yml"))
-	assertEqual(t, project.VM.Mode, "dedicated")
-	assertEqual(t, project.VM.Name, "api-dev")
-	if !strings.Contains(output.String(), "Registry preview:") {
-		t.Fatalf("expected preview output, got:\n%s", output.String())
-	}
-}
-
-func TestRunProjectAddInteractiveAbort(t *testing.T) {
-	t.Parallel()
-
-	registryPath := filepath.Join(t.TempDir(), "config.yaml")
-	repoPath := filepath.Join(t.TempDir(), "repo")
-	if err := os.MkdirAll(repoPath, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	var output bytes.Buffer
-	input := strings.Join([]string{
-		repoPath,
-		"api",
-		"",
-		"shared",
-		"",
-		"no",
-		"",
-	}, "\n")
-
-	err := runProjectAddInteractive(args{registryPath: registryPath}, prompt.New(strings.NewReader(input), &output))
-	if err != nil {
-		t.Fatalf("runProjectAddInteractive returned error: %v", err)
-	}
-	if _, err := os.Stat(registryPath); err == nil {
-		t.Fatal("expected registry file not to be written")
-	}
-}
-
-func TestParseUseArgs(t *testing.T) {
-	t.Parallel()
-
-	parsed, err := parseArgs([]string{"use", "example", "--registry", "/tmp/config.yaml"})
-	if err != nil {
-		t.Fatalf("parseArgs returned error: %v", err)
-	}
-
-	assertEqual(t, parsed.command, "use")
-	assertEqual(t, parsed.positionals[0], "example")
-	assertEqual(t, parsed.registryPath, "/tmp/config.yaml")
-}
-
 func TestParseVMStatusArgs(t *testing.T) {
 	t.Parallel()
 
@@ -537,6 +431,30 @@ func TestResolvedVMNameFallsBackToLiteralVMName(t *testing.T) {
 	assertEqual(t, resolved, "raw-vm")
 }
 
+func TestResolvedVMNameRejectsRemoteRuntimeProject(t *testing.T) {
+	t.Parallel()
+
+	registryPath := filepath.Join(t.TempDir(), "config.yaml")
+	reg, err := registry.New().Add("remote", registry.Project{
+		Path:    "/tmp/remote",
+		Runtime: registry.RuntimeTarget{Type: registry.RuntimeTypeRemote},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Save(registryPath, reg); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = resolvedVMName(args{registryPath: registryPath})
+	if err == nil {
+		t.Fatal("expected remote runtime project to fail")
+	}
+	if !strings.Contains(err.Error(), "runtime target remote-server is not supported yet") {
+		t.Fatalf("expected remote runtime error, got %v", err)
+	}
+}
+
 func TestResolvedProjectConfigUsesRegistryVMName(t *testing.T) {
 	t.Parallel()
 
@@ -565,6 +483,35 @@ func TestResolvedProjectConfigUsesRegistryVMName(t *testing.T) {
 	}
 	assertEqual(t, projectConfig.VMName, "registry-vm")
 	assertEqual(t, projectConfig.Resources.CPUs, 4)
+}
+
+func TestResolvedProjectConfigRejectsRemoteRuntimeProject(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".devctl.yml")
+	writeTestConfig(t, configPath)
+
+	registryPath := filepath.Join(t.TempDir(), "config.yaml")
+	reg, err := registry.New().Add("remote", registry.Project{
+		Path:    dir,
+		Config:  configPath,
+		Runtime: registry.RuntimeTarget{Type: registry.RuntimeTypeRemote},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Save(registryPath, reg); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = resolvedProjectConfig(args{registryPath: registryPath})
+	if err == nil {
+		t.Fatal("expected remote runtime project to fail")
+	}
+	if !strings.Contains(err.Error(), "runtime target remote-server is not supported yet") {
+		t.Fatalf("expected remote runtime error, got %v", err)
+	}
 }
 
 func TestResolvedProjectConfigUsesDirectProjectConfig(t *testing.T) {
@@ -615,9 +562,35 @@ func TestBuildStatusRows(t *testing.T) {
 	}
 	assertEqual(t, rows[0].Project, "api")
 	assertEqual(t, rows[0].Current, true)
+	assertEqual(t, rows[0].Runtime, "local-vm")
 	assertEqual(t, rows[0].VMState, "missing")
 	assertEqual(t, rows[1].Project, "front")
 	assertEqual(t, rows[1].VMState, "Running")
+}
+
+func TestBuildStatusRowsShowsRemoteRuntimeUnsupported(t *testing.T) {
+	t.Parallel()
+
+	reg, err := registry.New().Add("remote", registry.Project{
+		Path:    "/tmp/remote",
+		Runtime: registry.RuntimeTarget{Type: registry.RuntimeTypeRemote},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := buildStatusRows(reg, nil, "")
+	if err != nil {
+		t.Fatalf("buildStatusRows returned error: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+	assertEqual(t, rows[0].Project, "remote")
+	assertEqual(t, rows[0].Runtime, "remote-server")
+	assertEqual(t, rows[0].VM, "")
+	assertEqual(t, rows[0].VMState, "unsupported")
+	assertEqual(t, rows[0].VMMode, "")
 }
 
 func TestBuildStatusRowsFiltersProject(t *testing.T) {
@@ -649,6 +622,7 @@ func TestWriteStatusRows(t *testing.T) {
 	err := writeStatusRows(&output, []statusRow{{
 		Current: true,
 		Project: "api",
+		Runtime: "local-vm",
 		VM:      "api-vm",
 		VMState: "Running",
 		VMMode:  "dedicated",
@@ -660,7 +634,7 @@ func TestWriteStatusRows(t *testing.T) {
 	}
 
 	got := output.String()
-	for _, expected := range []string{"CURRENT", "PROJECT", "VM_STATE", "*", "api", "api-vm", "Running"} {
+	for _, expected := range []string{"CURRENT", "PROJECT", "RUNTIME", "VM_STATE", "*", "api", "local-vm", "api-vm", "Running"} {
 		if !strings.Contains(got, expected) {
 			t.Fatalf("expected output to contain %q:\n%s", expected, got)
 		}

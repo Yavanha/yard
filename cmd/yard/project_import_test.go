@@ -28,6 +28,8 @@ func TestParseProjectImportArgs(t *testing.T) {
 		"/Users/me/workspaces/api",
 		"--registry",
 		"/tmp/config.yaml",
+		"--runtime",
+		"local-vm",
 		"--vm-mode",
 		"dedicated",
 		"--vm-name",
@@ -44,6 +46,7 @@ func TestParseProjectImportArgs(t *testing.T) {
 	assertEqual(t, parsed.identityFile, "/Users/me/.ssh/yard_acme")
 	assertEqual(t, parsed.importPath, "/Users/me/workspaces/api")
 	assertEqual(t, parsed.registryPath, "/tmp/config.yaml")
+	assertEqual(t, parsed.runtimeType, "local-vm")
 	assertEqual(t, parsed.vmMode, "dedicated")
 	assertEqual(t, parsed.vmName, "api-dev")
 }
@@ -100,6 +103,7 @@ func TestRunProjectImportTestsClonesAndRegistersProject(t *testing.T) {
 	assertEqual(t, project.Path, absDestination)
 	assertEqual(t, project.Git.IdentityFile, absIdentity)
 	assertEqual(t, project.Git.Fingerprint, "SHA256:abc123")
+	assertEqual(t, project.Runtime.Type, "local-vm")
 	assertEqual(t, project.VM.Mode, "dedicated")
 	assertEqual(t, project.VM.Name, "api-dev")
 
@@ -108,6 +112,38 @@ func TestRunProjectImportTestsClonesAndRegistersProject(t *testing.T) {
 			t.Fatalf("expected output to contain %q:\n%s", expected, output.String())
 		}
 	}
+}
+
+func TestRunProjectImportRegistersRemoteRuntime(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	registryPath := filepath.Join(tempDir, "yard", "config.yaml")
+	destination := filepath.Join(tempDir, "api")
+	identityFile := filepath.Join(tempDir, "ssh", "yard_acme")
+	importer := &fakeGitImporter{}
+	fingerprinter := &fakeFingerprinter{fingerprint: "SHA256:abc123"}
+
+	err := runProjectImportWithDeps(args{
+		positionals:  []string{"api"},
+		repoURL:      "git@github.com:acme/api.git",
+		identityFile: identityFile,
+		importPath:   destination,
+		registryPath: registryPath,
+		runtimeType:  "remote-server",
+	}, importer, fingerprinter, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("runProjectImportWithDeps returned error: %v", err)
+	}
+
+	reg, err := registry.Load(registryPath)
+	if err != nil {
+		t.Fatalf("registry.Load returned error: %v", err)
+	}
+	project := reg.Projects["api"]
+	assertEqual(t, project.Runtime.Type, "remote-server")
+	assertEqual(t, project.VM.Mode, "")
+	assertEqual(t, project.VM.Name, "")
 }
 
 func TestRunProjectImportInteractiveSelectsExistingKey(t *testing.T) {
@@ -134,6 +170,7 @@ func TestRunProjectImportInteractiveSelectsExistingKey(t *testing.T) {
 		"",
 		destination,
 		"",
+		"local-vm",
 		"dedicated",
 		"",
 		"1",
@@ -177,6 +214,7 @@ func TestRunProjectImportInteractiveSelectsExistingKey(t *testing.T) {
 	assertEqual(t, project.Config, filepath.Join(absDestination, ".devctl.yml"))
 	assertEqual(t, project.Git.IdentityFile, absIdentity)
 	assertEqual(t, project.Git.Fingerprint, "SHA256:abc123")
+	assertEqual(t, project.Runtime.Type, "local-vm")
 	assertEqual(t, project.VM.Mode, "dedicated")
 	assertEqual(t, project.VM.Name, "api-dev")
 
@@ -207,6 +245,7 @@ func TestRunProjectImportInteractiveCreatesAndUploadsKey(t *testing.T) {
 		"",
 		destination,
 		"",
+		"local-vm",
 		"shared",
 		"",
 		identityFile,
@@ -290,6 +329,95 @@ func TestRunProjectImportInteractiveNotSureFallsBackToNewKey(t *testing.T) {
 		"",
 		destination,
 		"",
+		"local-vm",
+		"shared",
+		"",
+		"1",
+		"yes",
+		createdIdentityFile,
+		"",
+		"yes",
+		"",
+	}, "\n") + "\n"
+
+	err := runProjectImportInteractiveWithDepsAndUploader(
+		args{registryPath: registryPath},
+		importer,
+		keys,
+		&fakePublicKeyUploader{},
+		prompt.New(strings.NewReader(input), &output),
+	)
+	if err != nil {
+		t.Fatalf("runProjectImportInteractiveWithDepsAndUploader returned error: %v", err)
+	}
+
+	absExistingIdentity, err := filepath.Abs(existingIdentityFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	absCreatedIdentity, err := filepath.Abs(createdIdentityFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(importer.accessCalls) != 2 {
+		t.Fatalf("expected 2 access tests, got %#v", importer.accessCalls)
+	}
+	assertEqual(t, importer.accessCalls[0], gitCall{
+		repoURL:      "git@github.com:acme/api.git",
+		identityFile: absExistingIdentity,
+	})
+	assertEqual(t, importer.accessCalls[1], gitCall{
+		repoURL:      "git@github.com:acme/api.git",
+		identityFile: absCreatedIdentity,
+	})
+	assertEqual(t, keys.createdIdentityFile, absCreatedIdentity)
+
+	reg, err := registry.Load(registryPath)
+	if err != nil {
+		t.Fatalf("registry.Load returned error: %v", err)
+	}
+	project := reg.Projects["api"]
+	assertEqual(t, project.Git.IdentityFile, absCreatedIdentity)
+	assertEqual(t, project.Git.Fingerprint, "SHA256:created")
+
+	for _, expected := range []string{"Selected SSH key did not work:", "Create a new SSH key", "Public key:"} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("expected output to contain %q:\n%s", expected, output.String())
+		}
+	}
+}
+
+func TestRunProjectImportInteractiveYesFallsBackToNewKey(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	registryPath := filepath.Join(tempDir, "yard", "config.yaml")
+	destination := filepath.Join(tempDir, "api")
+	existingIdentityFile := filepath.Join(tempDir, "ssh", "existing")
+	createdIdentityFile := filepath.Join(tempDir, "ssh", "yard_acme_api_ed25519")
+	importer := &fakeGitImporter{
+		accessErrs: []error{
+			errors.New("permission denied"),
+			nil,
+		},
+	}
+	keys := &fakeFingerprinter{
+		fingerprint: "SHA256:created",
+		publicKey:   "ssh-ed25519 AAAA yard api",
+		keys: []sshkeys.KeyCandidate{{
+			Path:        existingIdentityFile,
+			Comment:     "old@example.com",
+			Fingerprint: "SHA256:old",
+		}},
+	}
+	var output bytes.Buffer
+	input := strings.Join([]string{
+		"yes",
+		"git@github.com:acme/api.git",
+		"",
+		destination,
+		"",
+		"local-vm",
 		"shared",
 		"",
 		"1",

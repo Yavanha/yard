@@ -168,10 +168,12 @@ Registre projets host:
 
 ```bash
 go run ./cmd/yard project add
-go run ./cmd/yard project add example /path/to/repo
+go run ./cmd/yard project add example /path/to/repo --runtime local-vm
 go run ./cmd/yard project import
-go run ./cmd/yard project import example --repo git@github.com:acme/example.git --identity ~/.ssh/yard_acme --path /path/to/repo
+go run ./cmd/yard project import example --repo git@github.com:acme/example.git --identity ~/.ssh/yard_acme --path /path/to/repo --runtime local-vm
+go run ./cmd/yard project inspect example
 go run ./cmd/yard project list
+go run ./cmd/yard project remove example
 go run ./cmd/yard use example
 go run ./cmd/yard init example
 go run ./cmd/yard init example --yes --config /path/to/repo/.devctl.yml
@@ -195,16 +197,19 @@ go run ./cmd/yard status example
 go run ./cmd/yard setup example
 ```
 
-Le registre vit par defaut dans `~/.config/yard/config.yaml`. Les choix locaux comme `vm.mode: shared|dedicated` restent dans ce registre, pas dans `.devctl.yml`.
+Le registre vit par defaut dans `~/.config/yard/config.yaml`. Les choix locaux comme `runtime.type: local-vm|remote-server` et `vm.mode: shared|dedicated` restent dans ce registre, pas dans `.devctl.yml`.
 Sans arguments, `project add` lance un wizard et affiche le YAML du registre avant ecriture.
 
 Notes de cadrage:
 - `Project` reste un repo enregistre. Un backend separe sera donc un autre `Project`.
 - Un futur `Environment` pourra composer plusieurs `Projects` pour front, backend, workers ou services.
 - Dans un meme repo, declarer plusieurs `services` vendor-neutral, par exemple `web`, `api` ou `worker`; Yard ne depend pas de Nest, PHP, Vite ou Supabase pour les piloter.
+- `runtime.type` explicite la cible d'execution locale: `local-vm` aujourd'hui, `remote-server` reserve au backend SSH futur.
 - `start` cree/demarre la VM puis lance les services sans doubler les processus deja ouverts; `stop` coupe les services et n'eteint une VM partagee qu'avec `--vm`.
 - `init` genere une config projet sans secrets ni adapters obligatoires; `--yes` donne le mode non interactif et `--force` est requis pour ecraser.
 - `ssh keys` liste les cles publiques detectees cote host avec fingerprint, commentaire et presence dans l'agent SSH, sans lire de cle privee.
-- `project import` sans arguments lance un wizard SSH: selection de cle existante ou creation host-side via `ssh-keygen`, avec upload optionnel par `gh`; `not sure` teste la cle choisie et bascule vers creation si elle echoue.
+- `project import` sans arguments lance un wizard SSH: selection de cle existante ou creation host-side via `ssh-keygen`, avec upload optionnel par `gh`; les chemins `yes` et `not sure` testent la cle choisie et proposent une creation si elle echoue.
 - `project import` teste l'acces Git avec `GIT_SSH_COMMAND`, refuse un dossier cible non vide, clone, puis enregistre le projet et son identite Git dans le registre host.
+- `project inspect` affiche les chemins locaux, la VM cible et l'identite Git host-side enregistree pour un projet.
+- `project remove` supprime uniquement l'entree du registre host; il ne supprime pas le repo local ni la VM.
 - La decouverte GitHub/orgs doit rester cote host, probablement via `gh`, pour reutiliser les credentials locaux sans les persister dans la VM.
