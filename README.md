@@ -197,7 +197,7 @@ go run ./cmd/yard status example
 go run ./cmd/yard setup example
 ```
 
-Le registre vit par defaut dans `~/.config/yard/config.yaml`. Les choix locaux comme `runtime.type: local-vm|remote-server` et `vm.mode: shared|dedicated` restent dans ce registre, pas dans `.devctl.yml`.
+Le registre vit par defaut dans `~/.config/yard/config.yaml`. Les choix locaux comme `runtime.type: local-vm|remote-server`, `remote.*` et `vm.mode: shared|dedicated` restent dans ce registre, pas dans `.devctl.yml`.
 Sans arguments, `project add` lance un wizard et affiche le YAML du registre avant ecriture.
 
 Notes de cadrage:
@@ -205,6 +205,7 @@ Notes de cadrage:
 - Un futur `Environment` pourra composer plusieurs `Projects` pour front, backend, workers ou services.
 - Dans un meme repo, declarer plusieurs `services` vendor-neutral, par exemple `web`, `api` ou `worker`; Yard ne depend pas de Nest, PHP, Vite ou Supabase pour les piloter.
 - `runtime.type` explicite la cible d'execution locale: `local-vm` aujourd'hui, `remote-server` reserve au backend SSH futur.
+- `remote.host`, `remote.user`, `remote.port`, `remote.workdir` et `remote.identity_file` preparent la cible SSH future; `remote.identity_file` est seulement un chemin host-local, jamais le contenu d'une cle.
 - `start` cree/demarre la VM puis lance les services sans doubler les processus deja ouverts; `stop` coupe les services et n'eteint une VM partagee qu'avec `--vm`.
 - `init` genere une config projet sans secrets ni adapters obligatoires; `--yes` donne le mode non interactif et `--force` est requis pour ecraser.
 - `ssh keys` liste les cles publiques detectees cote host avec fingerprint, commentaire et presence dans l'agent SSH, sans lire de cle privee.

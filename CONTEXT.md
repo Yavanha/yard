@@ -61,6 +61,7 @@ _Avoid_: dependance coeur obligatoire
 - Un **Project** peut utiliser une **Dev VM** partagee ou dediee selon `vm.mode` dans le **Project Registry**.
 - Un **Project** devra proposer un choix explicite de **Runtime Target**: **Dev VM** locale ou **Remote Server**, pour les usages de travail a distance ou de machine de dev partagee.
 - Le choix **Dev VM** locale vs **Remote Server** est une preference host-local dans le **Project Registry**, pas une option versionnee dans `.devctl.yml`.
+- Les metadonnees **Remote Server** non secretes vivent dans le **Project Registry** sous `remote`: host, user, port SSH, repertoire de travail distant, et chemin host-local optionnel vers une identite SSH.
 - Le coeur ne doit pas supposer que le **Runtime Target** est toujours une VM locale; les operations `start`, `stop`, `status`, `exec` et `process` doivent pouvoir passer par une interface cible.
 - Un **Remote Server** reste une cible d'execution, pas une source de repo: la decouverte Git et les credentials Git restent host-side via **Repository Source**.
 - Les secrets reels ne doivent pas etre stockes dans le **Project Registry**, dans `.devctl.yml`, dans la **Dev VM** ou sur un **Remote Server** par Yard.
@@ -127,6 +128,16 @@ projects:
     vm:
       mode: shared
       name: yard-shared
+  remote-api:
+    path: /Users/me/workspaces/api
+    runtime:
+      type: remote-server
+    remote:
+      host: dev.example.com
+      user: ubuntu
+      port: 22
+      workdir: /home/ubuntu/workspaces/api
+      identity_file: /Users/me/.ssh/yard_remote_ed25519
 ```
 
-`config` est optionnel et vaut `<path>/.devctl.yml` par defaut pendant la migration. `git` est optionnel et reste local a la machine hote. `runtime.type` vaut `local-vm` par defaut; `remote-server` est reserve au backend SSH futur. `vm.mode` vaut `shared` par defaut, et `vm.name` vaut `yard-shared` quand le mode est partage.
+`config` est optionnel et vaut `<path>/.devctl.yml` par defaut pendant la migration. `git` est optionnel et reste local a la machine hote. `runtime.type` vaut `local-vm` par defaut; `remote-server` est reserve au backend SSH futur. `remote` est optionnel, host-local, et ne stocke que des metadonnees non secretes; `remote.identity_file` est un chemin vers une cle privee hote, jamais le contenu de la cle. `vm.mode` vaut `shared` par defaut, et `vm.name` vaut `yard-shared` quand le mode est partage.

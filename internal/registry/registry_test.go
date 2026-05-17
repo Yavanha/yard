@@ -29,6 +29,13 @@ func TestAddProjectAcceptsRemoteRuntimeTarget(t *testing.T) {
 	reg, err := New().Add("example", Project{
 		Path:    "/tmp/example",
 		Runtime: RuntimeTarget{Type: "remote-server"},
+		Remote: RemoteServer{
+			Host:         "dev.example.com",
+			User:         "ubuntu",
+			Port:         2222,
+			Workdir:      "/home/ubuntu/workspaces/example",
+			IdentityFile: "/tmp/ssh/yard_remote_ed25519",
+		},
 	})
 	if err != nil {
 		t.Fatalf("Add returned error: %v", err)
@@ -36,8 +43,28 @@ func TestAddProjectAcceptsRemoteRuntimeTarget(t *testing.T) {
 
 	project := reg.Projects["example"]
 	assertEqual(t, project.Runtime.Type, "remote-server")
+	assertEqual(t, project.Remote.Host, "dev.example.com")
+	assertEqual(t, project.Remote.User, "ubuntu")
+	assertEqual(t, project.Remote.Port, 2222)
+	assertEqual(t, project.Remote.Workdir, "/home/ubuntu/workspaces/example")
+	assertEqual(t, project.Remote.IdentityFile, "/tmp/ssh/yard_remote_ed25519")
 	assertEqual(t, project.VM.Mode, "")
 	assertEqual(t, project.VM.Name, "")
+}
+
+func TestAddProjectRejectsInvalidRemotePort(t *testing.T) {
+	t.Parallel()
+
+	_, err := New().Add("example", Project{
+		Path:   "/tmp/example",
+		Remote: RemoteServer{Port: 70000},
+	})
+	if err == nil {
+		t.Fatal("expected invalid remote port to fail")
+	}
+	if !strings.Contains(err.Error(), "unsupported remote.port") {
+		t.Fatalf("expected remote.port error, got %v", err)
+	}
 }
 
 func TestAddDedicatedProjectDefaultsVMName(t *testing.T) {
@@ -172,6 +199,12 @@ projects:
       fingerprint: SHA256:abc123
     runtime:
       type: remote-server
+    remote:
+      host: dev.example.com
+      user: ubuntu
+      port: 2222
+      workdir: /home/ubuntu/workspaces/example
+      identity_file: /tmp/ssh/yard_remote_ed25519
     vm:
       mode: dedicated
       name: example-vm
@@ -187,6 +220,11 @@ projects:
 	assertEqual(t, project.Git.IdentityFile, "/tmp/ssh/yard_acme_ed25519")
 	assertEqual(t, project.Git.Fingerprint, "SHA256:abc123")
 	assertEqual(t, project.Runtime.Type, "remote-server")
+	assertEqual(t, project.Remote.Host, "dev.example.com")
+	assertEqual(t, project.Remote.User, "ubuntu")
+	assertEqual(t, project.Remote.Port, 2222)
+	assertEqual(t, project.Remote.Workdir, "/home/ubuntu/workspaces/example")
+	assertEqual(t, project.Remote.IdentityFile, "/tmp/ssh/yard_remote_ed25519")
 	assertEqual(t, project.VM.Mode, "dedicated")
 	assertEqual(t, project.VM.Name, "example-vm")
 }
@@ -252,6 +290,13 @@ func TestMarshalRemoteRuntimeOmitsVMDefaults(t *testing.T) {
 	reg, err := New().Add("api", Project{
 		Path:    "/tmp/api",
 		Runtime: RuntimeTarget{Type: "remote-server"},
+		Remote: RemoteServer{
+			Host:         "dev.example.com",
+			User:         "ubuntu",
+			Port:         2222,
+			Workdir:      "/home/ubuntu/workspaces/api",
+			IdentityFile: "/tmp/ssh/yard_remote_ed25519",
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -261,6 +306,12 @@ func TestMarshalRemoteRuntimeOmitsVMDefaults(t *testing.T) {
 	for _, expected := range []string{
 		"    runtime:\n",
 		"      type: remote-server\n",
+		"    remote:\n",
+		"      host: dev.example.com\n",
+		"      user: ubuntu\n",
+		"      port: 2222\n",
+		"      workdir: /home/ubuntu/workspaces/api\n",
+		"      identity_file: /tmp/ssh/yard_remote_ed25519\n",
 	} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("expected output to contain %q:\n%s", expected, output)

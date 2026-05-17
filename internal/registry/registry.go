@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -29,6 +30,7 @@ type Project struct {
 	Config  string
 	Git     Git
 	Runtime RuntimeTarget
+	Remote  RemoteServer
 	VM      VM
 }
 
@@ -39,6 +41,14 @@ type Git struct {
 
 type RuntimeTarget struct {
 	Type string
+}
+
+type RemoteServer struct {
+	Host         string
+	User         string
+	Port         int
+	Workdir      string
+	IdentityFile string
 }
 
 type VM struct {
@@ -155,6 +165,7 @@ func Parse(content []byte) (Registry, error) {
 	var currentProject string
 	inProjects := false
 	inGit := false
+	inRemote := false
 	inRuntime := false
 	inVM := false
 	lineNumber := 0
@@ -169,6 +180,7 @@ func Parse(content []byte) (Registry, error) {
 		switch {
 		case !strings.HasPrefix(line, " "):
 			inGit = false
+			inRemote = false
 			inRuntime = false
 			inVM = false
 			key, value, ok := splitKeyValue(line)
@@ -201,6 +213,7 @@ func Parse(content []byte) (Registry, error) {
 			}
 			currentProject = key
 			inGit = false
+			inRemote = false
 			inRuntime = false
 			inVM = false
 			reg.Projects[currentProject] = Project{}
@@ -218,11 +231,13 @@ func Parse(content []byte) (Registry, error) {
 			case "path":
 				project.Path = value
 				inGit = false
+				inRemote = false
 				inRuntime = false
 				inVM = false
 			case "config":
 				project.Config = value
 				inGit = false
+				inRemote = false
 				inRuntime = false
 				inVM = false
 			case "git":
@@ -230,6 +245,15 @@ func Parse(content []byte) (Registry, error) {
 					return Registry{}, unsupportedLineError(lineNumber, line)
 				}
 				inGit = true
+				inRemote = false
+				inRuntime = false
+				inVM = false
+			case "remote":
+				if value != "" {
+					return Registry{}, unsupportedLineError(lineNumber, line)
+				}
+				inGit = false
+				inRemote = true
 				inRuntime = false
 				inVM = false
 			case "runtime":
@@ -237,6 +261,7 @@ func Parse(content []byte) (Registry, error) {
 					return Registry{}, unsupportedLineError(lineNumber, line)
 				}
 				inGit = false
+				inRemote = false
 				inRuntime = true
 				inVM = false
 			case "vm":
@@ -244,6 +269,7 @@ func Parse(content []byte) (Registry, error) {
 					return Registry{}, unsupportedLineError(lineNumber, line)
 				}
 				inGit = false
+				inRemote = false
 				inRuntime = false
 				inVM = true
 			default:
@@ -252,7 +278,7 @@ func Parse(content []byte) (Registry, error) {
 			reg.Projects[currentProject] = project
 
 		case strings.HasPrefix(line, "      ") && !strings.HasPrefix(line, "        "):
-			if currentProject == "" || (!inGit && !inRuntime && !inVM) {
+			if currentProject == "" || (!inGit && !inRemote && !inRuntime && !inVM) {
 				return Registry{}, unsupportedLineError(lineNumber, line)
 			}
 			key, value, ok := splitKeyValue(strings.TrimPrefix(line, "      "))
@@ -266,6 +292,25 @@ func Parse(content []byte) (Registry, error) {
 					project.Git.IdentityFile = value
 				case "fingerprint":
 					project.Git.Fingerprint = value
+				default:
+					return Registry{}, unsupportedLineError(lineNumber, line)
+				}
+			} else if inRemote {
+				switch key {
+				case "host":
+					project.Remote.Host = value
+				case "user":
+					project.Remote.User = value
+				case "port":
+					port, err := strconv.Atoi(value)
+					if err != nil {
+						return Registry{}, fmt.Errorf("invalid remote.port on line %d: %s", lineNumber, value)
+					}
+					project.Remote.Port = port
+				case "workdir":
+					project.Remote.Workdir = value
+				case "identity_file":
+					project.Remote.IdentityFile = value
 				default:
 					return Registry{}, unsupportedLineError(lineNumber, line)
 				}
@@ -344,6 +389,34 @@ func Marshal(reg Registry) []byte {
 		builder.WriteString("      type: ")
 		builder.WriteString(project.Runtime.Type)
 		builder.WriteString("\n")
+		if project.Remote.Host != "" || project.Remote.User != "" || project.Remote.Port != 0 || project.Remote.Workdir != "" || project.Remote.IdentityFile != "" {
+			builder.WriteString("    remote:\n")
+			if project.Remote.Host != "" {
+				builder.WriteString("      host: ")
+				builder.WriteString(project.Remote.Host)
+				builder.WriteString("\n")
+			}
+			if project.Remote.User != "" {
+				builder.WriteString("      user: ")
+				builder.WriteString(project.Remote.User)
+				builder.WriteString("\n")
+			}
+			if project.Remote.Port != 0 {
+				builder.WriteString("      port: ")
+				builder.WriteString(strconv.Itoa(project.Remote.Port))
+				builder.WriteString("\n")
+			}
+			if project.Remote.Workdir != "" {
+				builder.WriteString("      workdir: ")
+				builder.WriteString(project.Remote.Workdir)
+				builder.WriteString("\n")
+			}
+			if project.Remote.IdentityFile != "" {
+				builder.WriteString("      identity_file: ")
+				builder.WriteString(project.Remote.IdentityFile)
+				builder.WriteString("\n")
+			}
+		}
 		if project.Runtime.Type == RuntimeTypeLocalVM || project.VM.Mode != "" || project.VM.Name != "" {
 			builder.WriteString("    vm:\n")
 			if project.VM.Mode != "" {
@@ -384,6 +457,17 @@ func normalizeProject(project Project) (Project, error) {
 			return Project{}, err
 		}
 		project.Git.IdentityFile = identityFile
+	}
+
+	if project.Remote.IdentityFile != "" {
+		identityFile, err := filepath.Abs(project.Remote.IdentityFile)
+		if err != nil {
+			return Project{}, err
+		}
+		project.Remote.IdentityFile = identityFile
+	}
+	if project.Remote.Port < 0 || project.Remote.Port > 65535 {
+		return Project{}, fmt.Errorf("unsupported remote.port: %d", project.Remote.Port)
 	}
 
 	if project.Runtime.Type == "" {
