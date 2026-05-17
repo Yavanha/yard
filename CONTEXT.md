@@ -47,6 +47,7 @@ _Avoid_: dependance coeur obligatoire
 ## Relationships
 
 - Un **Host Controller** pilote un ou plusieurs **Projects**.
+- Les textes visibles dans la CLI `yard` sont en anglais: aide, erreurs, prompts interactifs, confirmations et tables.
 - Un **Project** est declare dans un **Project Registry** local a la machine hote.
 - Le **Project Registry** vit par defaut dans `~/.config/yard/config.yaml`.
 - Un **Project** peut utiliser une **Dev VM** partagee ou dediee selon `vm.mode` dans le **Project Registry**.

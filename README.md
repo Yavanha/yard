@@ -4,6 +4,8 @@ CLI generique pour creer et piloter des environnements de developpement isoles.
 
 Le repo et la CLI Node V1 portent encore le nom historique `devctl`. Le produit et le prototype Go V2 utilisent le nom cible `yard`.
 
+Les textes visibles par les utilisateurs de la CLI sont en anglais: aide, erreurs, prompts, confirmations et sorties tableau.
+
 Objectif V1:
 - Lima pour une VM par projet sur macOS, Linux et WSL2.
 - Ansible pour provisionner la VM.

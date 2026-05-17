@@ -3,6 +3,7 @@
 ## Communication
 
 - Reponses courtes, techniques, en francais.
+- Les textes visibles par les utilisateurs de la CLI (`help`, erreurs, prompts, tables, confirmations) doivent etre en anglais.
 - Ne jamais stocker de secret reel dans le repo.
 
 ## Git
