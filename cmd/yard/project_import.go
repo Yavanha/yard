@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -28,6 +29,13 @@ type identityFingerprinter interface {
 type importKeyProvider interface {
 	identityFingerprinter
 	List() ([]sshkeys.KeyCandidate, error)
+	Create(identityFile string, comment string) (sshkeys.KeyCandidate, error)
+	PublicKey(identityFile string) (string, error)
+}
+
+type publicKeyUploader interface {
+	Available() bool
+	UploadPublicKey(publicKeyPath string, title string) error
 }
 
 type projectImportOptions struct {
@@ -45,7 +53,7 @@ func runProjectImport(parsed args) error {
 	gitClient := gitrepo.NewClient(nil)
 	detector := sshkeys.NewDetector(nil, defaultSSHDir())
 	if shouldRunProjectImportInteractive(parsed) {
-		return runProjectImportInteractiveWithDeps(parsed, gitClient, detector, prompt.New(os.Stdin, os.Stdout))
+		return runProjectImportInteractiveWithDepsAndUploader(parsed, gitClient, detector, ghKeyUploader{}, prompt.New(os.Stdin, os.Stdout))
 	}
 	return runProjectImportWithDeps(parsed, gitClient, detector, os.Stdout)
 }
@@ -66,40 +74,74 @@ func defaultSSHDir() string {
 }
 
 func runProjectImportInteractiveWithDeps(parsed args, importer gitImporter, keys importKeyProvider, prompter prompt.Prompter) error {
-	key, err := selectImportSSHKey(prompter, keys)
+	return runProjectImportInteractiveWithDepsAndUploader(parsed, importer, keys, ghKeyUploader{}, prompter)
+}
+
+func runProjectImportInteractiveWithDepsAndUploader(parsed args, importer gitImporter, keys importKeyProvider, uploader publicKeyUploader, prompter prompt.Prompter) error {
+	sshKeyAvailability, err := askSSHKeyAvailability(prompter)
 	if err != nil {
 		return err
 	}
 
-	repoURL, err := prompter.Ask("Repository URL", parsed.repoURL, true)
+	var key sshkeys.KeyCandidate
+	if sshKeyAvailability != "no" {
+		key, err = selectImportSSHKey(prompter, keys)
+		if err != nil {
+			return err
+		}
+	}
+
+	options, err := askProjectImportOptions(parsed, prompter)
 	if err != nil {
 		return err
+	}
+
+	if sshKeyAvailability == "no" {
+		key, err = createImportSSHKey(prompter, keys, uploader, options.RepoURL)
+		if err != nil {
+			return err
+		}
+	}
+
+	options.IdentityFile = key.Path
+	options.Fingerprint = key.Fingerprint
+	options, err = resolveProjectImportOptions(options, keys)
+	if err != nil {
+		return err
+	}
+	return executeProjectImport(parsed, options, importer, prompter.Writer())
+}
+
+func askProjectImportOptions(parsed args, prompter prompt.Prompter) (projectImportOptions, error) {
+	repoURL, err := prompter.Ask("Repository URL", parsed.repoURL, true)
+	if err != nil {
+		return projectImportOptions{}, err
 	}
 	defaultName := defaultProjectNameFromRepo(repoURL)
 	name, err := prompter.Ask("Project alias", defaultName, true)
 	if err != nil {
-		return err
+		return projectImportOptions{}, err
 	}
 	defaultPath := defaultImportPath(name)
 	destination, err := prompter.Ask("Local path", defaultPath, true)
 	if err != nil {
-		return err
+		return projectImportOptions{}, err
 	}
 	defaultConfig := filepath.Join(destination, config.FileName)
 	configPath, err := prompter.Ask("Config path", defaultConfig, false)
 	if err != nil {
-		return err
+		return projectImportOptions{}, err
 	}
 
 	vmMode := parsed.vmMode
 	if vmMode == "" {
 		vmMode, err = prompter.Ask("VM mode (shared/dedicated)", registry.DefaultVMMode, true)
 		if err != nil {
-			return err
+			return projectImportOptions{}, err
 		}
 	}
 	if vmMode != "shared" && vmMode != "dedicated" {
-		return fmt.Errorf("unsupported vm.mode: %s", vmMode)
+		return projectImportOptions{}, fmt.Errorf("unsupported vm.mode: %s", vmMode)
 	}
 
 	defaultVMName := registry.DefaultVMName
@@ -110,24 +152,18 @@ func runProjectImportInteractiveWithDeps(parsed args, importer gitImporter, keys
 	if vmName == "" {
 		vmName, err = prompter.Ask("VM name", defaultVMName, true)
 		if err != nil {
-			return err
+			return projectImportOptions{}, err
 		}
 	}
 
-	options, err := resolveProjectImportOptions(projectImportOptions{
-		Name:         name,
-		RepoURL:      repoURL,
-		Destination:  destination,
-		ConfigPath:   configPath,
-		IdentityFile: key.Path,
-		Fingerprint:  key.Fingerprint,
-		VMMode:       vmMode,
-		VMName:       vmName,
-	}, keys)
-	if err != nil {
-		return err
-	}
-	return executeProjectImport(parsed, options, importer, prompter.Writer())
+	return projectImportOptions{
+		Name:        name,
+		RepoURL:     repoURL,
+		Destination: destination,
+		ConfigPath:  configPath,
+		VMMode:      vmMode,
+		VMName:      vmName,
+	}, nil
 }
 
 func defaultProjectNameFromRepo(repoURL string) string {
@@ -149,14 +185,6 @@ func defaultImportPath(name string) string {
 }
 
 func selectImportSSHKey(prompter prompt.Prompter, keys importKeyProvider) (sshkeys.KeyCandidate, error) {
-	answer, err := askSSHKeyAvailability(prompter)
-	if err != nil {
-		return sshkeys.KeyCandidate{}, err
-	}
-	if answer == "no" {
-		return sshkeys.KeyCandidate{}, errors.New("SSH key creation is not implemented yet. Create a host SSH key, upload it to your Git provider, then run: yard project import")
-	}
-
 	candidates, err := keys.List()
 	if err != nil {
 		return sshkeys.KeyCandidate{}, err
@@ -191,6 +219,78 @@ func selectImportSSHKey(prompter prompt.Prompter, keys importKeyProvider) (sshke
 		}
 		return selectable[index-1], nil
 	}
+}
+
+func createImportSSHKey(prompter prompt.Prompter, keys importKeyProvider, uploader publicKeyUploader, repoURL string) (sshkeys.KeyCandidate, error) {
+	defaultPath := sshkeys.DefaultIdentityPath(defaultSSHDir(), repoURL)
+	identityFile, err := prompter.Ask("SSH identity path", defaultPath, true)
+	if err != nil {
+		return sshkeys.KeyCandidate{}, err
+	}
+	identityFile, err = expandHomePath(identityFile)
+	if err != nil {
+		return sshkeys.KeyCandidate{}, err
+	}
+	identityFile, err = filepath.Abs(identityFile)
+	if err != nil {
+		return sshkeys.KeyCandidate{}, err
+	}
+
+	comment, err := prompter.Ask("SSH key comment", defaultSSHKeyComment(repoURL), true)
+	if err != nil {
+		return sshkeys.KeyCandidate{}, err
+	}
+	confirmed, err := prompter.Confirm("Create SSH key", true)
+	if err != nil {
+		return sshkeys.KeyCandidate{}, err
+	}
+	if !confirmed {
+		return sshkeys.KeyCandidate{}, errors.New("Aborted.")
+	}
+
+	fmt.Fprintln(prompter.Writer(), "Running ssh-keygen. Enter a passphrase when prompted, or press Enter for none.")
+	key, err := keys.Create(identityFile, comment)
+	if err != nil {
+		return sshkeys.KeyCandidate{}, err
+	}
+
+	publicKey, err := keys.PublicKey(key.Path)
+	if err != nil {
+		return sshkeys.KeyCandidate{}, err
+	}
+	fmt.Fprintln(prompter.Writer())
+	fmt.Fprintln(prompter.Writer(), "Public key:")
+	fmt.Fprintln(prompter.Writer(), publicKey)
+	fmt.Fprintln(prompter.Writer())
+
+	publicKeyPath := key.Path + ".pub"
+	title := defaultSSHKeyTitle(repoURL)
+	if uploader.Available() {
+		upload, err := prompter.Confirm("Upload public key with gh", false)
+		if err != nil {
+			return sshkeys.KeyCandidate{}, err
+		}
+		if upload {
+			if err := uploader.UploadPublicKey(publicKeyPath, title); err != nil {
+				return sshkeys.KeyCandidate{}, err
+			}
+			return key, nil
+		}
+	}
+
+	fmt.Fprintln(prompter.Writer(), "Add this public key to GitHub, GitLab, or your Git provider before continuing.")
+	if _, err := prompter.Ask("Press Enter after adding the public key", "", false); err != nil {
+		return sshkeys.KeyCandidate{}, err
+	}
+	return key, nil
+}
+
+func defaultSSHKeyComment(repoURL string) string {
+	return "yard " + defaultProjectNameFromRepo(repoURL)
+}
+
+func defaultSSHKeyTitle(repoURL string) string {
+	return "yard " + defaultProjectNameFromRepo(repoURL)
 }
 
 func askSSHKeyAvailability(prompter prompt.Prompter) (string, error) {
@@ -363,4 +463,19 @@ func ensureImportDestinationAvailable(destination string) error {
 		return fmt.Errorf("destination path is not empty: %s", destination)
 	}
 	return nil
+}
+
+type ghKeyUploader struct{}
+
+func (ghKeyUploader) Available() bool {
+	_, err := exec.LookPath("gh")
+	return err == nil
+}
+
+func (ghKeyUploader) UploadPublicKey(publicKeyPath string, title string) error {
+	cmd := exec.Command("gh", "ssh-key", "add", publicKeyPath, "--title", title)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }

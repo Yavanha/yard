@@ -187,21 +187,116 @@ func TestRunProjectImportInteractiveSelectsExistingKey(t *testing.T) {
 	}
 }
 
-func TestRunProjectImportInteractiveRejectsKeyCreationForNow(t *testing.T) {
+func TestRunProjectImportInteractiveCreatesAndUploadsKey(t *testing.T) {
 	t.Parallel()
 
-	var output bytes.Buffer
-	err := runProjectImportInteractiveWithDeps(
-		args{},
-		&fakeGitImporter{},
-		&fakeFingerprinter{},
-		prompt.New(strings.NewReader("no\n"), &output),
-	)
-	if err == nil {
-		t.Fatal("expected key creation to fail")
+	tempDir := t.TempDir()
+	registryPath := filepath.Join(tempDir, "yard", "config.yaml")
+	destination := filepath.Join(tempDir, "api")
+	identityFile := filepath.Join(tempDir, "ssh", "yard_acme_api_ed25519")
+	importer := &fakeGitImporter{}
+	keys := &fakeFingerprinter{
+		fingerprint: "SHA256:created",
+		publicKey:   "ssh-ed25519 AAAA yard api",
 	}
-	if !strings.Contains(err.Error(), "SSH key creation is not implemented yet") {
-		t.Fatalf("unexpected error: %v", err)
+	uploader := &fakePublicKeyUploader{available: true}
+	var output bytes.Buffer
+	input := strings.Join([]string{
+		"no",
+		"git@github.com:acme/api.git",
+		"",
+		destination,
+		"",
+		"shared",
+		"",
+		identityFile,
+		"",
+		"yes",
+		"yes",
+	}, "\n") + "\n"
+
+	err := runProjectImportInteractiveWithDepsAndUploader(
+		args{registryPath: registryPath},
+		importer,
+		keys,
+		uploader,
+		prompt.New(strings.NewReader(input), &output),
+	)
+	if err != nil {
+		t.Fatalf("runProjectImportInteractiveWithDepsAndUploader returned error: %v", err)
+	}
+
+	absIdentity, err := filepath.Abs(identityFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	absDestination, err := filepath.Abs(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertEqual(t, keys.createdIdentityFile, absIdentity)
+	assertEqual(t, keys.createdComment, "yard api")
+	assertEqual(t, uploader.uploadedPublicKeyPath, absIdentity+".pub")
+	assertEqual(t, uploader.uploadedTitle, "yard api")
+	assertEqual(t, importer.accessCalls[0], gitCall{
+		repoURL:      "git@github.com:acme/api.git",
+		identityFile: absIdentity,
+	})
+
+	reg, err := registry.Load(registryPath)
+	if err != nil {
+		t.Fatalf("registry.Load returned error: %v", err)
+	}
+	project := reg.Projects["api"]
+	assertEqual(t, project.Path, absDestination)
+	assertEqual(t, project.Git.IdentityFile, absIdentity)
+	assertEqual(t, project.Git.Fingerprint, "SHA256:created")
+
+	for _, expected := range []string{"Running ssh-keygen.", "Public key:", "Upload public key with gh"} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("expected output to contain %q:\n%s", expected, output.String())
+		}
+	}
+}
+
+func TestCreateImportSSHKeyPrintsManualInstructionsWhenGHIsMissing(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	identityFile := filepath.Join(tempDir, "ssh", "yard_acme_api_ed25519")
+	keys := &fakeFingerprinter{
+		fingerprint: "SHA256:created",
+		publicKey:   "ssh-ed25519 AAAA yard api",
+	}
+	var output bytes.Buffer
+	input := strings.Join([]string{
+		identityFile,
+		"",
+		"yes",
+		"",
+	}, "\n") + "\n"
+
+	key, err := createImportSSHKey(
+		prompt.New(strings.NewReader(input), &output),
+		keys,
+		&fakePublicKeyUploader{},
+		"git@github.com:acme/api.git",
+	)
+	if err != nil {
+		t.Fatalf("createImportSSHKey returned error: %v", err)
+	}
+
+	absIdentity, err := filepath.Abs(identityFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertEqual(t, key.Path, absIdentity)
+	assertEqual(t, keys.createdIdentityFile, absIdentity)
+	for _, expected := range []string{"Public key:", "Add this public key to GitHub, GitLab, or your Git provider"} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("expected output to contain %q:\n%s", expected, output.String())
+		}
 	}
 }
 
@@ -287,10 +382,13 @@ func (i *fakeGitImporter) Clone(repoURL string, identityFile string, destination
 }
 
 type fakeFingerprinter struct {
-	identityFile string
-	fingerprint  string
-	err          error
-	keys         []sshkeys.KeyCandidate
+	identityFile        string
+	fingerprint         string
+	err                 error
+	keys                []sshkeys.KeyCandidate
+	createdIdentityFile string
+	createdComment      string
+	publicKey           string
 }
 
 func (f *fakeFingerprinter) FingerprintForIdentity(identityFile string) (string, error) {
@@ -300,4 +398,41 @@ func (f *fakeFingerprinter) FingerprintForIdentity(identityFile string) (string,
 
 func (f *fakeFingerprinter) List() ([]sshkeys.KeyCandidate, error) {
 	return f.keys, f.err
+}
+
+func (f *fakeFingerprinter) Create(identityFile string, comment string) (sshkeys.KeyCandidate, error) {
+	f.createdIdentityFile = identityFile
+	f.createdComment = comment
+	if f.err != nil {
+		return sshkeys.KeyCandidate{}, f.err
+	}
+	return sshkeys.KeyCandidate{
+		Path:        identityFile,
+		Comment:     comment,
+		Fingerprint: f.fingerprint,
+	}, nil
+}
+
+func (f *fakeFingerprinter) PublicKey(identityFile string) (string, error) {
+	if f.err != nil {
+		return "", f.err
+	}
+	return f.publicKey, nil
+}
+
+type fakePublicKeyUploader struct {
+	available             bool
+	uploadedPublicKeyPath string
+	uploadedTitle         string
+	err                   error
+}
+
+func (u *fakePublicKeyUploader) Available() bool {
+	return u.available
+}
+
+func (u *fakePublicKeyUploader) UploadPublicKey(publicKeyPath string, title string) error {
+	u.uploadedPublicKeyPath = publicKeyPath
+	u.uploadedTitle = title
+	return u.err
 }

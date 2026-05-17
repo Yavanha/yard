@@ -2,18 +2,25 @@ package sshkeys
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 )
 
 type Runner interface {
 	Output(command string, args ...string) ([]byte, error)
+	Run(command string, args ...string) error
 }
 
-type ExecRunner struct{}
+type ExecRunner struct {
+	Stdin  io.Reader
+	Stdout io.Writer
+	Stderr io.Writer
+}
 
 type Detector struct {
 	Runner Runner
@@ -44,6 +51,35 @@ func NewDetector(runner Runner, sshDir string) Detector {
 
 func (r ExecRunner) Output(command string, args ...string) ([]byte, error) {
 	return exec.Command(command, args...).CombinedOutput()
+}
+
+func (r ExecRunner) Run(command string, args ...string) error {
+	cmd := exec.Command(command, args...)
+	cmd.Stdin = r.stdin()
+	cmd.Stdout = r.stdout()
+	cmd.Stderr = r.stderr()
+	return cmd.Run()
+}
+
+func (r ExecRunner) stdin() io.Reader {
+	if r.Stdin != nil {
+		return r.Stdin
+	}
+	return os.Stdin
+}
+
+func (r ExecRunner) stdout() io.Writer {
+	if r.Stdout != nil {
+		return r.Stdout
+	}
+	return os.Stdout
+}
+
+func (r ExecRunner) stderr() io.Writer {
+	if r.Stderr != nil {
+		return r.Stderr
+	}
+	return os.Stderr
 }
 
 func (d Detector) List() ([]KeyCandidate, error) {
@@ -107,12 +143,64 @@ func (d Detector) List() ([]KeyCandidate, error) {
 	return rows, nil
 }
 
+func (d Detector) Create(identityFile string, comment string) (KeyCandidate, error) {
+	if identityFile == "" {
+		return KeyCandidate{}, fmt.Errorf("SSH identity file is required")
+	}
+	if err := ensureKeyDoesNotExist(identityFile); err != nil {
+		return KeyCandidate{}, err
+	}
+	if err := os.MkdirAll(filepath.Dir(identityFile), 0o700); err != nil {
+		return KeyCandidate{}, err
+	}
+	if err := d.Runner.Run("ssh-keygen", "-t", "ed25519", "-f", identityFile, "-C", comment); err != nil {
+		return KeyCandidate{}, fmt.Errorf("create SSH key: %w", err)
+	}
+	fingerprint, err := d.FingerprintForIdentity(identityFile)
+	if err != nil {
+		return KeyCandidate{}, err
+	}
+	return KeyCandidate{
+		Path:        identityFile,
+		Comment:     comment,
+		Fingerprint: fingerprint,
+	}, nil
+}
+
+func (d Detector) PublicKey(identityFile string) (string, error) {
+	content, err := os.ReadFile(identityFile + ".pub")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(content)), nil
+}
+
 func (d Detector) FingerprintForIdentity(identityFile string) (string, error) {
 	fingerprint, _, err := d.fingerprint(identityFile + ".pub")
 	if err != nil {
 		return "", err
 	}
 	return fingerprint, nil
+}
+
+func DefaultIdentityPath(sshDir string, repoURL string) string {
+	org, repo := repoParts(repoURL)
+	return filepath.Join(sshDir, "yard_"+safeKeyName(org)+"_"+safeKeyName(repo)+"_ed25519")
+}
+
+func ensureKeyDoesNotExist(identityFile string) error {
+	for _, path := range []string{identityFile, identityFile + ".pub"} {
+		_, err := os.Stat(path)
+		switch {
+		case err == nil:
+			return fmt.Errorf("SSH key already exists: %s", path)
+		case os.IsNotExist(err):
+			continue
+		default:
+			return err
+		}
+	}
+	return nil
 }
 
 func (d Detector) listAgentKeys() ([]agentKey, error) {
@@ -196,4 +284,43 @@ func parseIdentityLine(line string) (agentKey, bool) {
 		Fingerprint: fields[1],
 		Comment:     strings.TrimSpace(comment),
 	}, true
+}
+
+func repoParts(repoURL string) (string, string) {
+	trimmed := strings.TrimSuffix(strings.TrimSpace(repoURL), "/")
+	trimmed = strings.TrimSuffix(trimmed, ".git")
+
+	pathPart := trimmed
+	if _, after, ok := strings.Cut(trimmed, ":"); ok && strings.Contains(trimmed, "@") {
+		pathPart = after
+	} else if strings.Contains(trimmed, "://") {
+		if _, after, ok := strings.Cut(trimmed, "://"); ok {
+			pathPart = after
+		}
+		parts := strings.Split(pathPart, "/")
+		if len(parts) > 1 {
+			pathPart = strings.Join(parts[1:], "/")
+		}
+	}
+
+	parts := strings.Split(pathPart, "/")
+	if len(parts) >= 2 {
+		return parts[len(parts)-2], parts[len(parts)-1]
+	}
+	if len(parts) == 1 && parts[0] != "" {
+		return "repo", parts[0]
+	}
+	return "repo", "project"
+}
+
+var unsafeKeyNameChar = regexp.MustCompile(`[^a-zA-Z0-9_-]+`)
+
+func safeKeyName(value string) string {
+	normalized := strings.ToLower(strings.Trim(value, " ._-"))
+	normalized = unsafeKeyNameChar.ReplaceAllString(normalized, "_")
+	normalized = strings.Trim(normalized, "_")
+	if normalized == "" {
+		return "project"
+	}
+	return normalized
 }

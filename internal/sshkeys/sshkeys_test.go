@@ -178,8 +178,86 @@ func TestFingerprintForIdentityUsesPublicKey(t *testing.T) {
 	assertEqual(t, fingerprint, "SHA256:api")
 }
 
+func TestDefaultIdentityPathUsesRepoParts(t *testing.T) {
+	t.Parallel()
+
+	got := DefaultIdentityPath("/Users/me/.ssh", "git@github.com:Acme/API Server.git")
+	want := filepath.Join("/Users/me/.ssh", "yard_acme_api_server_ed25519")
+	assertEqual(t, got, want)
+}
+
+func TestCreateRunsSSHKeygenAndReturnsFingerprint(t *testing.T) {
+	t.Parallel()
+
+	sshDir := filepath.Join(t.TempDir(), ".ssh")
+	identityFile := filepath.Join(sshDir, "yard_acme_api_ed25519")
+	runner := &fakeRunner{
+		outputs: map[string]fakeOutput{
+			"ssh-keygen -lf " + identityFile + ".pub": {
+				content: []byte("256 SHA256:api yard acme/api (ED25519)\n"),
+			},
+		},
+		onRun: func(command string, args ...string) error {
+			if err := os.WriteFile(identityFile+".pub", []byte("ssh-ed25519 AAAA yard acme/api\n"), 0o600); err != nil {
+				return err
+			}
+			return nil
+		},
+	}
+
+	key, err := NewDetector(runner, sshDir).Create(identityFile, "yard acme/api")
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+
+	assertEqual(t, key.Path, identityFile)
+	assertEqual(t, key.Comment, "yard acme/api")
+	assertEqual(t, key.Fingerprint, "SHA256:api")
+	wantRun := "ssh-keygen -t ed25519 -f " + identityFile + " -C yard acme/api"
+	assertEqual(t, runner.runs[0], wantRun)
+}
+
+func TestCreateRefusesExistingKeyFiles(t *testing.T) {
+	t.Parallel()
+
+	sshDir := filepath.Join(t.TempDir(), ".ssh")
+	if err := os.MkdirAll(sshDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	identityFile := filepath.Join(sshDir, "yard_acme_api_ed25519")
+	if err := os.WriteFile(identityFile+".pub", []byte("ssh-ed25519 AAAA\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := NewDetector(&fakeRunner{}, sshDir).Create(identityFile, "yard acme/api")
+	if err == nil {
+		t.Fatal("expected existing key to fail")
+	}
+}
+
+func TestPublicKeyReadsOnlyPublicKeyFile(t *testing.T) {
+	t.Parallel()
+
+	sshDir := filepath.Join(t.TempDir(), ".ssh")
+	if err := os.MkdirAll(sshDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	identityFile := filepath.Join(sshDir, "yard_acme_api_ed25519")
+	if err := os.WriteFile(identityFile+".pub", []byte("ssh-ed25519 AAAA yard acme/api\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	publicKey, err := NewDetector(&fakeRunner{}, sshDir).PublicKey(identityFile)
+	if err != nil {
+		t.Fatalf("PublicKey returned error: %v", err)
+	}
+	assertEqual(t, publicKey, "ssh-ed25519 AAAA yard acme/api")
+}
+
 type fakeRunner struct {
 	outputs map[string]fakeOutput
+	runs    []string
+	onRun   func(command string, args ...string) error
 }
 
 type fakeOutput struct {
@@ -194,6 +272,15 @@ func (r *fakeRunner) Output(command string, args ...string) ([]byte, error) {
 		return nil, errors.New("unexpected command: " + key)
 	}
 	return output.content, output.err
+}
+
+func (r *fakeRunner) Run(command string, args ...string) error {
+	key := strings.Join(append([]string{command}, args...), " ")
+	r.runs = append(r.runs, key)
+	if r.onRun != nil {
+		return r.onRun(command, args...)
+	}
+	return nil
 }
 
 func assertEqual(t *testing.T, got any, want any) {
