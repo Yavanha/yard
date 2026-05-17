@@ -19,36 +19,41 @@ import (
 const version = "0.2.0-dev"
 
 type args struct {
-	command      string
-	subcommand   string
-	positionals  []string
-	projectPath  string
-	importPath   string
-	registryPath string
-	configPath   string
-	repoURL      string
-	repoDir      string
-	identityFile string
-	runtimeType  string
-	vmMode       string
-	vmName       string
-	vmProvider   string
-	vmUser       string
-	vmType       string
-	cpus         int
-	memory       string
-	disk         string
-	serviceName  string
-	serviceCmd   string
-	serviceDir   string
-	servicePort  int
-	tailLines    int
-	follow       bool
-	yes          bool
-	force        bool
-	stopVM       bool
-	execCommand  []string
-	help         bool
+	command            string
+	subcommand         string
+	positionals        []string
+	projectPath        string
+	importPath         string
+	registryPath       string
+	configPath         string
+	repoURL            string
+	repoDir            string
+	identityFile       string
+	runtimeType        string
+	remoteHost         string
+	remoteUser         string
+	remotePort         int
+	remoteWorkdir      string
+	remoteIdentityFile string
+	vmMode             string
+	vmName             string
+	vmProvider         string
+	vmUser             string
+	vmType             string
+	cpus               int
+	memory             string
+	disk               string
+	serviceName        string
+	serviceCmd         string
+	serviceDir         string
+	servicePort        int
+	tailLines          int
+	follow             bool
+	yes                bool
+	force              bool
+	stopVM             bool
+	execCommand        []string
+	help               bool
 }
 
 func main() {
@@ -158,6 +163,40 @@ func parseArgs(argv []string) (args, error) {
 				return args{}, errors.New("--runtime requires a value")
 			}
 			parsed.runtimeType = argv[index+1]
+			index++
+		case "--remote-host":
+			if index+1 >= len(argv) {
+				return args{}, errors.New("--remote-host requires a value")
+			}
+			parsed.remoteHost = argv[index+1]
+			index++
+		case "--remote-user":
+			if index+1 >= len(argv) {
+				return args{}, errors.New("--remote-user requires a value")
+			}
+			parsed.remoteUser = argv[index+1]
+			index++
+		case "--remote-port":
+			if index+1 >= len(argv) {
+				return args{}, errors.New("--remote-port requires a value")
+			}
+			port, err := strconv.Atoi(argv[index+1])
+			if err != nil || port <= 0 || port > 65535 {
+				return args{}, errors.New("--remote-port requires an integer between 1 and 65535")
+			}
+			parsed.remotePort = port
+			index++
+		case "--remote-workdir":
+			if index+1 >= len(argv) {
+				return args{}, errors.New("--remote-workdir requires a value")
+			}
+			parsed.remoteWorkdir = argv[index+1]
+			index++
+		case "--remote-identity":
+			if index+1 >= len(argv) {
+				return args{}, errors.New("--remote-identity requires a path")
+			}
+			parsed.remoteIdentityFile = argv[index+1]
 			index++
 		case "--vm-mode":
 			if index+1 >= len(argv) {
@@ -1114,9 +1153,9 @@ Usage:
   go run ./cmd/yard --help
   go run ./cmd/yard config [project-name] [--project <path>]
   go run ./cmd/yard project add
-  go run ./cmd/yard project add <name> <path> [--config <path>] [--runtime local-vm|remote-server] [--vm-mode shared|dedicated] [--vm-name <name>]
+  go run ./cmd/yard project add <name> <path> [--config <path>] [--runtime local-vm|remote-server] [--remote-host <host>] [--remote-user <user>] [--remote-port <port>] [--remote-workdir <path>] [--remote-identity <path>] [--vm-mode shared|dedicated] [--vm-name <name>]
   go run ./cmd/yard project import
-  go run ./cmd/yard project import <name> --repo <url> --identity <path> --path <path> [--runtime local-vm|remote-server]
+  go run ./cmd/yard project import <name> --repo <url> --identity <path> --path <path> [--runtime local-vm|remote-server] [--remote-host <host>] [--remote-user <user>] [--remote-port <port>] [--remote-workdir <path>] [--remote-identity <path>]
   go run ./cmd/yard project inspect [name]
   go run ./cmd/yard project list
   go run ./cmd/yard project remove <name>

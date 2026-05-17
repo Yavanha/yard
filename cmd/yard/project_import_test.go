@@ -121,16 +121,22 @@ func TestRunProjectImportRegistersRemoteRuntime(t *testing.T) {
 	registryPath := filepath.Join(tempDir, "yard", "config.yaml")
 	destination := filepath.Join(tempDir, "api")
 	identityFile := filepath.Join(tempDir, "ssh", "yard_acme")
+	remoteIdentity := filepath.Join(tempDir, "ssh", "remote")
 	importer := &fakeGitImporter{}
 	fingerprinter := &fakeFingerprinter{fingerprint: "SHA256:abc123"}
 
 	err := runProjectImportWithDeps(args{
-		positionals:  []string{"api"},
-		repoURL:      "git@github.com:acme/api.git",
-		identityFile: identityFile,
-		importPath:   destination,
-		registryPath: registryPath,
-		runtimeType:  "remote-server",
+		positionals:        []string{"api"},
+		repoURL:            "git@github.com:acme/api.git",
+		identityFile:       identityFile,
+		importPath:         destination,
+		registryPath:       registryPath,
+		runtimeType:        "remote-server",
+		remoteHost:         "dev.example.com",
+		remoteUser:         "ubuntu",
+		remotePort:         2222,
+		remoteWorkdir:      "/home/ubuntu/workspaces/api",
+		remoteIdentityFile: remoteIdentity,
 	}, importer, fingerprinter, &bytes.Buffer{})
 	if err != nil {
 		t.Fatalf("runProjectImportWithDeps returned error: %v", err)
@@ -142,8 +148,54 @@ func TestRunProjectImportRegistersRemoteRuntime(t *testing.T) {
 	}
 	project := reg.Projects["api"]
 	assertEqual(t, project.Runtime.Type, "remote-server")
+	assertEqual(t, project.Remote.Host, "dev.example.com")
+	assertEqual(t, project.Remote.User, "ubuntu")
+	assertEqual(t, project.Remote.Port, 2222)
+	assertEqual(t, project.Remote.Workdir, "/home/ubuntu/workspaces/api")
+	assertEqual(t, project.Remote.IdentityFile, remoteIdentity)
 	assertEqual(t, project.VM.Mode, "")
 	assertEqual(t, project.VM.Name, "")
+}
+
+func TestRunProjectImportRemoteRuntimeRequiresMetadata(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	err := runProjectImportWithDeps(args{
+		positionals:  []string{"api"},
+		repoURL:      "git@github.com:acme/api.git",
+		identityFile: filepath.Join(tempDir, "ssh", "yard_acme"),
+		importPath:   filepath.Join(tempDir, "api"),
+		registryPath: filepath.Join(tempDir, "yard", "config.yaml"),
+		runtimeType:  "remote-server",
+	}, &fakeGitImporter{}, &fakeFingerprinter{fingerprint: "SHA256:abc123"}, &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("expected missing remote metadata to fail")
+	}
+	if !strings.Contains(err.Error(), "--remote-host is required") {
+		t.Fatalf("expected remote host error, got %v", err)
+	}
+}
+
+func TestRunProjectImportRejectsRemoteFlagsForLocalVM(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	err := runProjectImportWithDeps(args{
+		positionals:  []string{"api"},
+		repoURL:      "git@github.com:acme/api.git",
+		identityFile: filepath.Join(tempDir, "ssh", "yard_acme"),
+		importPath:   filepath.Join(tempDir, "api"),
+		registryPath: filepath.Join(tempDir, "yard", "config.yaml"),
+		runtimeType:  "local-vm",
+		remoteHost:   "dev.example.com",
+	}, &fakeGitImporter{}, &fakeFingerprinter{fingerprint: "SHA256:abc123"}, &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("expected remote flags with local-vm to fail")
+	}
+	if !strings.Contains(err.Error(), "--remote-* flags require --runtime remote-server") {
+		t.Fatalf("expected remote flag error, got %v", err)
+	}
 }
 
 func TestRunProjectImportInteractiveSelectsExistingKey(t *testing.T) {

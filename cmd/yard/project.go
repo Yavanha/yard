@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
+	"strconv"
 	"text/tabwriter"
 
 	"yard/internal/config"
@@ -62,6 +64,10 @@ func runProjectAdd(parsed args) error {
 	if runtimeType == registry.RuntimeTypeRemote && (parsed.vmMode != "" || parsed.vmName != "") {
 		return errors.New("--vm-mode and --vm-name require --runtime local-vm")
 	}
+	remote, err := resolvedRemoteServer(parsed, runtimeType)
+	if err != nil {
+		return err
+	}
 	vm := registry.VM{}
 	if runtimeType == registry.RuntimeTypeLocalVM {
 		vm = registry.VM{
@@ -74,6 +80,7 @@ func runProjectAdd(parsed args) error {
 		Path:    parsed.positionals[1],
 		Config:  parsed.configPath,
 		Runtime: registry.RuntimeTarget{Type: runtimeType},
+		Remote:  remote,
 		VM:      vm,
 	})
 	if err != nil {
@@ -132,6 +139,16 @@ func runProjectAddInteractive(parsed args, prompter prompt.Prompter) error {
 		return errors.New("--vm-mode and --vm-name require --runtime local-vm")
 	}
 
+	remote := registry.RemoteServer{}
+	if runtimeType == registry.RuntimeTypeRemote {
+		remote, err = askRemoteServer(prompter, parsed, absProjectPath)
+		if err != nil {
+			return err
+		}
+	} else if remoteFlagsSet(parsed) {
+		return errors.New("--remote-* flags require --runtime remote-server")
+	}
+
 	vm := registry.VM{}
 	if runtimeType == registry.RuntimeTypeLocalVM {
 		vmMode := parsed.vmMode
@@ -175,6 +192,7 @@ func runProjectAddInteractive(parsed args, prompter prompt.Prompter) error {
 		Path:    absProjectPath,
 		Config:  configPath,
 		Runtime: registry.RuntimeTarget{Type: runtimeType},
+		Remote:  remote,
 		VM:      vm,
 	})
 	if err != nil {
@@ -210,6 +228,153 @@ func resolvedProjectRuntimeType(runtimeType string) (string, error) {
 		return "", fmt.Errorf("unsupported runtime.type: %s", runtimeType)
 	}
 	return runtimeType, nil
+}
+
+func resolvedRemoteServer(parsed args, runtimeType string) (registry.RemoteServer, error) {
+	return resolvedRemoteServerOptions(remoteServerFromArgs(parsed), runtimeType)
+}
+
+func remoteServerFromArgs(parsed args) registry.RemoteServer {
+	return registry.RemoteServer{
+		Host:         parsed.remoteHost,
+		User:         parsed.remoteUser,
+		Port:         parsed.remotePort,
+		Workdir:      parsed.remoteWorkdir,
+		IdentityFile: parsed.remoteIdentityFile,
+	}
+}
+
+func resolvedRemoteServerOptions(remote registry.RemoteServer, runtimeType string) (registry.RemoteServer, error) {
+	if runtimeType != registry.RuntimeTypeRemote {
+		if remoteServerSet(remote) {
+			return registry.RemoteServer{}, errors.New("--remote-* flags require --runtime remote-server")
+		}
+		return registry.RemoteServer{}, nil
+	}
+
+	if remote.Host == "" {
+		return registry.RemoteServer{}, errors.New("--remote-host is required with --runtime remote-server")
+	}
+	if remote.User == "" {
+		return registry.RemoteServer{}, errors.New("--remote-user is required with --runtime remote-server")
+	}
+	if remote.Workdir == "" {
+		return registry.RemoteServer{}, errors.New("--remote-workdir is required with --runtime remote-server")
+	}
+	if remote.Port == 0 {
+		remote.Port = registry.DefaultRemotePort
+	}
+	if remote.Port < 0 || remote.Port > 65535 {
+		return registry.RemoteServer{}, fmt.Errorf("unsupported remote.port: %d", remote.Port)
+	}
+	if remote.IdentityFile != "" {
+		identityFile, err := expandHomePath(remote.IdentityFile)
+		if err != nil {
+			return registry.RemoteServer{}, err
+		}
+		remote.IdentityFile, err = filepath.Abs(identityFile)
+		if err != nil {
+			return registry.RemoteServer{}, err
+		}
+	}
+	return remote, nil
+}
+
+func askRemoteServer(prompter prompt.Prompter, parsed args, projectPath string) (registry.RemoteServer, error) {
+	host, err := prompter.Ask("Remote host", parsed.remoteHost, true)
+	if err != nil {
+		return registry.RemoteServer{}, err
+	}
+
+	defaultUser := parsed.remoteUser
+	if defaultUser == "" {
+		defaultUser = os.Getenv("USER")
+	}
+	user, err := prompter.Ask("Remote user", defaultUser, true)
+	if err != nil {
+		return registry.RemoteServer{}, err
+	}
+
+	port, err := askRemotePort(prompter, parsed.remotePort)
+	if err != nil {
+		return registry.RemoteServer{}, err
+	}
+
+	defaultWorkdir := parsed.remoteWorkdir
+	if defaultWorkdir == "" {
+		defaultWorkdir = defaultRemoteWorkdir(user, projectPath)
+	}
+	workdir, err := prompter.Ask("Remote workdir", defaultWorkdir, true)
+	if err != nil {
+		return registry.RemoteServer{}, err
+	}
+
+	identityFile, err := prompter.Ask("Remote SSH identity path", parsed.remoteIdentityFile, false)
+	if err != nil {
+		return registry.RemoteServer{}, err
+	}
+	if identityFile != "" {
+		identityFile, err = expandHomePath(identityFile)
+		if err != nil {
+			return registry.RemoteServer{}, err
+		}
+		identityFile, err = filepath.Abs(identityFile)
+		if err != nil {
+			return registry.RemoteServer{}, err
+		}
+	}
+
+	return registry.RemoteServer{
+		Host:         host,
+		User:         user,
+		Port:         port,
+		Workdir:      workdir,
+		IdentityFile: identityFile,
+	}, nil
+}
+
+func askRemotePort(prompter prompt.Prompter, defaultPort int) (int, error) {
+	if defaultPort == 0 {
+		defaultPort = registry.DefaultRemotePort
+	}
+	for {
+		value, err := prompter.Ask("Remote SSH port", strconv.Itoa(defaultPort), true)
+		if err != nil {
+			return 0, err
+		}
+		port, err := strconv.Atoi(value)
+		if err == nil && port > 0 && port <= 65535 {
+			return port, nil
+		}
+		fmt.Fprintln(prompter.Writer(), "Enter an integer between 1 and 65535.")
+	}
+}
+
+func defaultRemoteWorkdir(user string, projectPath string) string {
+	home := path.Join("/home", user)
+	if user == "root" {
+		home = "/root"
+	}
+	return path.Join(home, "workspaces", filepath.Base(projectPath))
+}
+
+func remoteFlagsSet(parsed args) bool {
+	return remoteServerSet(remoteServerFromArgs(parsed))
+}
+
+func remoteServerSet(remote registry.RemoteServer) bool {
+	return remote.Host != "" ||
+		remote.User != "" ||
+		remote.Port != 0 ||
+		remote.Workdir != "" ||
+		remote.IdentityFile != ""
+}
+
+func formatRemotePort(port int) string {
+	if port == 0 {
+		return "-"
+	}
+	return strconv.Itoa(port)
 }
 
 func runProjectList(parsed args) error {
@@ -309,6 +474,11 @@ func writeProjectInspect(output io.Writer, currentProject string, name string, p
 	fmt.Fprintf(writer, "path\t%s\n", project.Path)
 	fmt.Fprintf(writer, "config\t%s\n", formatEmpty(project.Config))
 	fmt.Fprintf(writer, "runtime.type\t%s\n", formatEmpty(project.Runtime.Type))
+	fmt.Fprintf(writer, "remote.host\t%s\n", formatEmpty(project.Remote.Host))
+	fmt.Fprintf(writer, "remote.user\t%s\n", formatEmpty(project.Remote.User))
+	fmt.Fprintf(writer, "remote.port\t%s\n", formatRemotePort(project.Remote.Port))
+	fmt.Fprintf(writer, "remote.workdir\t%s\n", formatEmpty(project.Remote.Workdir))
+	fmt.Fprintf(writer, "remote.identity_file\t%s\n", formatEmpty(project.Remote.IdentityFile))
 	fmt.Fprintf(writer, "vm.mode\t%s\n", formatEmpty(project.VM.Mode))
 	fmt.Fprintf(writer, "vm.name\t%s\n", formatEmpty(project.VM.Name))
 	fmt.Fprintf(writer, "git.identity_file\t%s\n", formatEmpty(project.Git.IdentityFile))

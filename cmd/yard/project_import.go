@@ -46,6 +46,7 @@ type projectImportOptions struct {
 	IdentityFile string
 	Fingerprint  string
 	RuntimeType  string
+	Remote       registry.RemoteServer
 	VMMode       string
 	VMName       string
 }
@@ -194,6 +195,16 @@ func askProjectImportOptions(parsed args, prompter prompt.Prompter) (projectImpo
 		return projectImportOptions{}, errors.New("--vm-mode and --vm-name require --runtime local-vm")
 	}
 
+	remote := registry.RemoteServer{}
+	if runtimeType == registry.RuntimeTypeRemote {
+		remote, err = askRemoteServer(prompter, parsed, destination)
+		if err != nil {
+			return projectImportOptions{}, err
+		}
+	} else if remoteFlagsSet(parsed) {
+		return projectImportOptions{}, errors.New("--remote-* flags require --runtime remote-server")
+	}
+
 	vmMode := ""
 	vmName := ""
 	if runtimeType == registry.RuntimeTypeLocalVM {
@@ -227,6 +238,7 @@ func askProjectImportOptions(parsed args, prompter prompt.Prompter) (projectImpo
 		Destination: destination,
 		ConfigPath:  configPath,
 		RuntimeType: runtimeType,
+		Remote:      remote,
 		VMMode:      vmMode,
 		VMName:      vmName,
 	}, nil
@@ -396,6 +408,7 @@ func runProjectImportWithDeps(parsed args, importer gitImporter, fingerprinter i
 		ConfigPath:   parsed.configPath,
 		IdentityFile: parsed.identityFile,
 		RuntimeType:  parsed.runtimeType,
+		Remote:       remoteServerFromArgs(parsed),
 		VMMode:       parsed.vmMode,
 		VMName:       parsed.vmName,
 	}, fingerprinter)
@@ -426,6 +439,10 @@ func resolveProjectImportOptions(options projectImportOptions, fingerprinter ide
 	options.RuntimeType = runtimeType
 	if options.RuntimeType == registry.RuntimeTypeRemote && (options.VMMode != "" || options.VMName != "") {
 		return projectImportOptions{}, errors.New("--vm-mode and --vm-name require --runtime local-vm")
+	}
+	options.Remote, err = resolvedRemoteServerOptions(options.Remote, options.RuntimeType)
+	if err != nil {
+		return projectImportOptions{}, err
 	}
 
 	destination, err := expandHomePath(options.Destination)
@@ -504,6 +521,7 @@ func finishProjectImport(parsed args, options projectImportOptions, importer git
 		Path:    options.Destination,
 		Config:  options.ConfigPath,
 		Runtime: registry.RuntimeTarget{Type: options.RuntimeType},
+		Remote:  options.Remote,
 		Git: registry.Git{
 			IdentityFile: options.IdentityFile,
 			Fingerprint:  options.Fingerprint,

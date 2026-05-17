@@ -169,8 +169,10 @@ Registre projets host:
 ```bash
 go run ./cmd/yard project add
 go run ./cmd/yard project add example /path/to/repo --runtime local-vm
+go run ./cmd/yard project add remote-api /path/to/repo --runtime remote-server --remote-host dev.example.com --remote-user ubuntu --remote-workdir /home/ubuntu/workspaces/api
 go run ./cmd/yard project import
 go run ./cmd/yard project import example --repo git@github.com:acme/example.git --identity ~/.ssh/yard_acme --path /path/to/repo --runtime local-vm
+go run ./cmd/yard project import remote-api --repo git@github.com:acme/api.git --identity ~/.ssh/yard_acme --path /path/to/repo --runtime remote-server --remote-host dev.example.com --remote-user ubuntu --remote-workdir /home/ubuntu/workspaces/api
 go run ./cmd/yard project inspect example
 go run ./cmd/yard project list
 go run ./cmd/yard project remove example
@@ -206,6 +208,7 @@ Notes de cadrage:
 - Dans un meme repo, declarer plusieurs `services` vendor-neutral, par exemple `web`, `api` ou `worker`; Yard ne depend pas de Nest, PHP, Vite ou Supabase pour les piloter.
 - `runtime.type` explicite la cible d'execution locale: `local-vm` aujourd'hui, `remote-server` reserve au backend SSH futur.
 - `remote.host`, `remote.user`, `remote.port`, `remote.workdir` et `remote.identity_file` preparent la cible SSH future; `remote.identity_file` est seulement un chemin host-local, jamais le contenu d'une cle.
+- Les flags `--remote-*` sont acceptes uniquement avec `--runtime remote-server`; `--remote-port` vaut 22 par defaut.
 - `start` cree/demarre la VM puis lance les services sans doubler les processus deja ouverts; `stop` coupe les services et n'eteint une VM partagee qu'avec `--vm`.
 - `init` genere une config projet sans secrets ni adapters obligatoires; `--yes` donne le mode non interactif et `--force` est requis pour ecraser.
 - `ssh keys` liste les cles publiques detectees cote host avec fingerprint, commentaire et presence dans l'agent SSH, sans lire de cle privee.

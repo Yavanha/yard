@@ -16,6 +16,7 @@ const (
 	DefaultRuntimeType = "local-vm"
 	RuntimeTypeLocalVM = "local-vm"
 	RuntimeTypeRemote  = "remote-server"
+	DefaultRemotePort  = 22
 	DefaultVMMode      = "shared"
 	DefaultVMName      = "yard-shared"
 )
