@@ -14,6 +14,7 @@ import (
 	"yard/internal/process"
 	"yard/internal/provider/lima"
 	"yard/internal/registry"
+	yardruntime "yard/internal/runtime"
 )
 
 const version = "0.2.0-dev"
@@ -520,7 +521,8 @@ func runExec(parsed args) error {
 	}
 
 	client := lima.NewClient(nil)
-	return client.Exec(project.VM.Name, parsed.execCommand)
+	target := yardruntime.NewLocalVM(client, project.VM.Name)
+	return target.Exec(parsed.execCommand)
 }
 
 func runProcess(parsed args) error {
@@ -563,6 +565,7 @@ func runProcessList(parsed args) error {
 	if err != nil {
 		return err
 	}
+	target := yardruntime.NewLocalVM(client, project.VM.Name)
 
 	vmState := findVMState(instances, project.VM.Name)
 	rows := make([]process.State, 0, len(projectConfig.Services))
@@ -579,7 +582,7 @@ func runProcessList(parsed args) error {
 		if err != nil {
 			return err
 		}
-		output, err := client.ExecOutput(project.VM.Name, command)
+		output, err := target.ExecOutput(command)
 		if err != nil {
 			return err
 		}
@@ -612,7 +615,8 @@ func runProcessStart(parsed args) error {
 	}
 
 	client := lima.NewClient(nil)
-	return client.Exec(project.VM.Name, command)
+	target := yardruntime.NewLocalVM(client, project.VM.Name)
+	return target.Exec(command)
 }
 
 func runProcessStop(parsed args) error {
@@ -638,7 +642,8 @@ func runProcessStop(parsed args) error {
 	}
 
 	client := lima.NewClient(nil)
-	return client.Exec(project.VM.Name, command)
+	target := yardruntime.NewLocalVM(client, project.VM.Name)
+	return target.Exec(command)
 }
 
 func runProcessLogs(parsed args) error {
@@ -664,7 +669,8 @@ func runProcessLogs(parsed args) error {
 	}
 
 	client := lima.NewClient(nil)
-	return client.Exec(project.VM.Name, command)
+	target := yardruntime.NewLocalVM(client, project.VM.Name)
+	return target.Exec(command)
 }
 
 func runStart(parsed args) error {
@@ -691,7 +697,8 @@ func runStart(parsed args) error {
 	if err := ensureProjectVM(client, projectConfig); err != nil {
 		return err
 	}
-	return startProjectServices(client, projectName, project, projectConfig)
+	target := yardruntime.NewLocalVM(client, project.VM.Name)
+	return startProjectServices(target, projectName, projectConfig)
 }
 
 func runStop(parsed args) error {
@@ -712,7 +719,8 @@ func runStop(parsed args) error {
 	}
 
 	client := lima.NewClient(nil)
-	if err := stopProjectServices(client, projectName, project, projectConfig); err != nil {
+	target := yardruntime.NewLocalVM(client, project.VM.Name)
+	if err := stopProjectServices(client, target, projectName, project, projectConfig); err != nil {
 		return err
 	}
 	if !shouldStopProjectVM(project, parsed.stopVM) {
@@ -892,21 +900,21 @@ func ensureProjectVM(client lima.Client, projectConfig config.ProjectConfig) err
 	return nil
 }
 
-func startProjectServices(client lima.Client, projectName string, project registry.Project, projectConfig config.ProjectConfig) error {
+func startProjectServices(target yardruntime.Target, projectName string, projectConfig config.ProjectConfig) error {
 	for _, service := range projectConfig.Services {
 		command, err := process.StartCommand(process.ServiceFromConfig(projectName, projectConfig, service))
 		if err != nil {
 			return err
 		}
 		fmt.Printf("Starting service: %s\n", service.Name)
-		if err := client.Exec(project.VM.Name, command); err != nil {
+		if err := target.Exec(command); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func stopProjectServices(client lima.Client, projectName string, project registry.Project, projectConfig config.ProjectConfig) error {
+func stopProjectServices(client lima.Client, target yardruntime.Target, projectName string, project registry.Project, projectConfig config.ProjectConfig) error {
 	instances, err := client.List()
 	if err != nil {
 		return err
@@ -924,7 +932,7 @@ func stopProjectServices(client lima.Client, projectName string, project registr
 			return err
 		}
 		fmt.Printf("Stopping service: %s\n", service.Name)
-		if err := client.Exec(project.VM.Name, command); err != nil {
+		if err := target.Exec(command); err != nil {
 			return err
 		}
 	}
