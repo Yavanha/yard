@@ -24,7 +24,13 @@ type Registry struct {
 type Project struct {
 	Path   string
 	Config string
+	Git    Git
 	VM     VM
+}
+
+type Git struct {
+	IdentityFile string
+	Fingerprint  string
 }
 
 type VM struct {
@@ -129,6 +135,7 @@ func Parse(content []byte) (Registry, error) {
 	scanner := bufio.NewScanner(bytes.NewReader(content))
 	var currentProject string
 	inProjects := false
+	inGit := false
 	inVM := false
 	lineNumber := 0
 
@@ -141,6 +148,7 @@ func Parse(content []byte) (Registry, error) {
 
 		switch {
 		case !strings.HasPrefix(line, " "):
+			inGit = false
 			inVM = false
 			key, value, ok := splitKeyValue(line)
 			if !ok {
@@ -171,6 +179,7 @@ func Parse(content []byte) (Registry, error) {
 				return Registry{}, err
 			}
 			currentProject = key
+			inGit = false
 			inVM = false
 			reg.Projects[currentProject] = Project{}
 
@@ -186,14 +195,23 @@ func Parse(content []byte) (Registry, error) {
 			switch key {
 			case "path":
 				project.Path = value
+				inGit = false
 				inVM = false
 			case "config":
 				project.Config = value
+				inGit = false
+				inVM = false
+			case "git":
+				if value != "" {
+					return Registry{}, unsupportedLineError(lineNumber, line)
+				}
+				inGit = true
 				inVM = false
 			case "vm":
 				if value != "" {
 					return Registry{}, unsupportedLineError(lineNumber, line)
 				}
+				inGit = false
 				inVM = true
 			default:
 				return Registry{}, unsupportedLineError(lineNumber, line)
@@ -201,7 +219,7 @@ func Parse(content []byte) (Registry, error) {
 			reg.Projects[currentProject] = project
 
 		case strings.HasPrefix(line, "      ") && !strings.HasPrefix(line, "        "):
-			if currentProject == "" || !inVM {
+			if currentProject == "" || (!inGit && !inVM) {
 				return Registry{}, unsupportedLineError(lineNumber, line)
 			}
 			key, value, ok := splitKeyValue(strings.TrimPrefix(line, "      "))
@@ -209,13 +227,24 @@ func Parse(content []byte) (Registry, error) {
 				return Registry{}, unsupportedLineError(lineNumber, line)
 			}
 			project := reg.Projects[currentProject]
-			switch key {
-			case "mode":
-				project.VM.Mode = value
-			case "name":
-				project.VM.Name = value
-			default:
-				return Registry{}, unsupportedLineError(lineNumber, line)
+			if inGit {
+				switch key {
+				case "identity_file":
+					project.Git.IdentityFile = value
+				case "fingerprint":
+					project.Git.Fingerprint = value
+				default:
+					return Registry{}, unsupportedLineError(lineNumber, line)
+				}
+			} else {
+				switch key {
+				case "mode":
+					project.VM.Mode = value
+				case "name":
+					project.VM.Name = value
+				default:
+					return Registry{}, unsupportedLineError(lineNumber, line)
+				}
 			}
 			reg.Projects[currentProject] = project
 
@@ -258,6 +287,19 @@ func Marshal(reg Registry) []byte {
 			builder.WriteString(project.Config)
 			builder.WriteString("\n")
 		}
+		if project.Git.IdentityFile != "" || project.Git.Fingerprint != "" {
+			builder.WriteString("    git:\n")
+			if project.Git.IdentityFile != "" {
+				builder.WriteString("      identity_file: ")
+				builder.WriteString(project.Git.IdentityFile)
+				builder.WriteString("\n")
+			}
+			if project.Git.Fingerprint != "" {
+				builder.WriteString("      fingerprint: ")
+				builder.WriteString(project.Git.Fingerprint)
+				builder.WriteString("\n")
+			}
+		}
 		builder.WriteString("    vm:\n")
 		builder.WriteString("      mode: ")
 		builder.WriteString(project.VM.Mode)
@@ -284,6 +326,14 @@ func normalizeProject(project Project) (Project, error) {
 			return Project{}, err
 		}
 		project.Config = absConfig
+	}
+
+	if project.Git.IdentityFile != "" {
+		identityFile, err := filepath.Abs(project.Git.IdentityFile)
+		if err != nil {
+			return Project{}, err
+		}
+		project.Git.IdentityFile = identityFile
 	}
 
 	if project.VM.Mode == "" {

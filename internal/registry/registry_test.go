@@ -100,6 +100,9 @@ projects:
   example:
     path: /tmp/example
     config: /tmp/example/custom.yml
+    git:
+      identity_file: /tmp/ssh/yard_acme_ed25519
+      fingerprint: SHA256:abc123
     vm:
       mode: dedicated
       name: example-vm
@@ -112,6 +115,8 @@ projects:
 	assertEqual(t, reg.CurrentProject, "example")
 	assertEqual(t, project.Path, "/tmp/example")
 	assertEqual(t, project.Config, "/tmp/example/custom.yml")
+	assertEqual(t, project.Git.IdentityFile, "/tmp/ssh/yard_acme_ed25519")
+	assertEqual(t, project.Git.Fingerprint, "SHA256:abc123")
 	assertEqual(t, project.VM.Mode, "dedicated")
 	assertEqual(t, project.VM.Name, "example-vm")
 }
@@ -140,6 +145,32 @@ func TestMarshalRegistrySortsProjects(t *testing.T) {
 	}
 	if strings.Index(output, "  alpha:") > strings.Index(output, "  zeta:") {
 		t.Fatalf("expected projects to be sorted:\n%s", output)
+	}
+}
+
+func TestMarshalRegistryIncludesGitIdentity(t *testing.T) {
+	t.Parallel()
+
+	reg, err := New().Add("api", Project{
+		Path: "/tmp/api",
+		Git: Git{
+			IdentityFile: "/tmp/ssh/yard_acme_ed25519",
+			Fingerprint:  "SHA256:abc123",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	output := string(Marshal(reg))
+	for _, expected := range []string{
+		"    git:\n",
+		"      identity_file: /tmp/ssh/yard_acme_ed25519\n",
+		"      fingerprint: SHA256:abc123\n",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Fatalf("expected output to contain %q:\n%s", expected, output)
+		}
 	}
 }
 

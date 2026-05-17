@@ -180,6 +180,7 @@ go run ./cmd/yard vm status example
 go run ./cmd/yard vm start example
 go run ./cmd/yard vm stop example
 go run ./cmd/yard exec example -- uname -a
+go run ./cmd/yard ssh keys
 go run ./cmd/yard process list example
 go run ./cmd/yard process start example app
 go run ./cmd/yard process logs example app --tail 80
@@ -201,4 +202,5 @@ Notes de cadrage:
 - Dans un meme repo, declarer plusieurs `services` vendor-neutral, par exemple `web`, `api` ou `worker`; Yard ne depend pas de Nest, PHP, Vite ou Supabase pour les piloter.
 - `start` cree/demarre la VM puis lance les services sans doubler les processus deja ouverts; `stop` coupe les services et n'eteint une VM partagee qu'avec `--vm`.
 - `init` genere une config projet sans secrets ni adapters obligatoires; `--yes` donne le mode non interactif et `--force` est requis pour ecraser.
+- `ssh keys` liste les cles publiques detectees cote host avec fingerprint, commentaire et presence dans l'agent SSH, sans lire de cle privee.
 - La decouverte GitHub/orgs doit rester cote host, probablement via `gh`, pour reutiliser les credentials locaux sans les persister dans la VM.

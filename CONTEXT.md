@@ -51,6 +51,7 @@ _Avoid_: dependance coeur obligatoire
 - Un **Project** est declare dans un **Project Registry** local a la machine hote.
 - Le **Project Registry** vit par defaut dans `~/.config/yard/config.yaml`.
 - Un **Project** peut utiliser une **Dev VM** partagee ou dediee selon `vm.mode` dans le **Project Registry**.
+- Un **Project Registry** peut stocker une identite Git host-side (`git.identity_file`, `git.fingerprint`) pour tester et cloner un repo sans l'inscrire dans `.devctl.yml`.
 - Un **Environment** peut etre mono-project maintenant et multi-project plus tard pour composer front, backend, workers ou services dans des repos differents.
 - **Start** reutilise les ressources deja demarrees au lieu de dupliquer ou detruire des processus.
 - Un **Process** expose au minimum un etat, un PID ou identifiant equivalent, des ports et des logs consultables depuis le **Host Controller**.
@@ -98,9 +99,12 @@ projects:
   example:
     path: /Users/me/workspaces/example
     config: /Users/me/workspaces/example/.devctl.yml
+    git:
+      identity_file: /Users/me/.ssh/yard_acme_ed25519
+      fingerprint: SHA256:abc123
     vm:
       mode: shared
       name: yard-shared
 ```
 
-`config` est optionnel et vaut `<path>/.devctl.yml` par defaut pendant la migration. `vm.mode` vaut `shared` par defaut, et `vm.name` vaut `yard-shared` quand le mode est partage.
+`config` est optionnel et vaut `<path>/.devctl.yml` par defaut pendant la migration. `git` est optionnel et reste local a la machine hote. `vm.mode` vaut `shared` par defaut, et `vm.name` vaut `yard-shared` quand le mode est partage.

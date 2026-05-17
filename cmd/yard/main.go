@@ -79,6 +79,8 @@ func run(argv []string) error {
 		return runInit(parsed)
 	case "vm":
 		return runVM(parsed)
+	case "ssh":
+		return runSSH(parsed)
 	case "exec":
 		return runExec(parsed)
 	case "process":
@@ -241,7 +243,7 @@ func parseArgs(argv []string) (args, error) {
 				return args{}, fmt.Errorf("unknown flag: %s", value)
 			}
 			if parsed.command != "" {
-				if parsed.subcommand == "" && (parsed.command == "project" || parsed.command == "vm" || parsed.command == "process") {
+				if parsed.subcommand == "" && (parsed.command == "project" || parsed.command == "vm" || parsed.command == "process" || parsed.command == "ssh") {
 					parsed.subcommand = value
 					continue
 				}
@@ -1277,6 +1279,7 @@ Usage:
   go run ./cmd/yard vm start [project-or-vm]
   go run ./cmd/yard vm stop [project-or-vm]
   go run ./cmd/yard vm exec [project-or-vm] -- <command>
+  go run ./cmd/yard ssh keys
   go run ./cmd/yard exec [project-name] -- <command>
   go run ./cmd/yard process list [project-name]
   go run ./cmd/yard process start [project-name] <service-name>
@@ -1293,6 +1296,7 @@ Commands:
   use      Set the current project in the host project registry.
   init     Create a project .devctl.yml.
   vm       Manage Lima VMs.
+  ssh      Inspect host SSH keys for Git onboarding.
   exec     Execute a command in the current or named project's VM.
   process  Manage configured dev service processes in the project VM.
   start    Start the project VM and configured services.
