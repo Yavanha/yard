@@ -514,6 +514,40 @@ func TestResolvedProjectConfigRejectsRemoteRuntimeProject(t *testing.T) {
 	}
 }
 
+func TestResolvedProcessProjectUsesRemoteWorkdir(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".devctl.yml")
+	writeTestConfig(t, configPath)
+
+	registryPath := filepath.Join(t.TempDir(), "config.yaml")
+	reg, err := registry.New().Add("remote", registry.Project{
+		Path:    dir,
+		Config:  configPath,
+		Runtime: registry.RuntimeTarget{Type: registry.RuntimeTypeRemote},
+		Remote: registry.RemoteServer{
+			Host:    "dev.example.com",
+			User:    "ubuntu",
+			Workdir: "/srv/api",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Save(registryPath, reg); err != nil {
+		t.Fatal(err)
+	}
+
+	projectName, project, projectConfig, err := resolvedProcessProject(args{registryPath: registryPath}, "")
+	if err != nil {
+		t.Fatalf("resolvedProcessProject returned error: %v", err)
+	}
+	assertEqual(t, projectName, "remote")
+	assertEqual(t, project.Runtime.Type, registry.RuntimeTypeRemote)
+	assertEqual(t, projectConfig.RepoDir, "/srv/api")
+}
+
 func TestResolvedProjectConfigUsesDirectProjectConfig(t *testing.T) {
 	t.Parallel()
 
@@ -679,7 +713,7 @@ func TestWriteProcessRows(t *testing.T) {
 	}
 
 	got := output.String()
-	for _, expected := range []string{"PROJECT", "SERVICE", "STATUS", "api", "web", "running", "1234", "3000", "api-vm"} {
+	for _, expected := range []string{"PROJECT", "SERVICE", "STATUS", "TARGET", "api", "web", "running", "1234", "3000", "api-vm"} {
 		if !strings.Contains(got, expected) {
 			t.Fatalf("expected output to contain %q:\n%s", expected, got)
 		}

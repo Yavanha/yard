@@ -553,26 +553,31 @@ func runProcessList(parsed args) error {
 	if len(parsed.positionals) == 1 {
 		projectName = parsed.positionals[0]
 	}
-	projectName, project, projectConfig, err := resolvedRuntimeProject(parsed, projectName)
+	projectName, project, projectConfig, err := resolvedProcessProject(parsed, projectName)
 	if err != nil {
 		return err
 	}
 
-	client := lima.NewClient(nil)
-	instances, err := client.List()
+	target, err := runtimeTargetForProject(project)
 	if err != nil {
 		return err
 	}
-	target := yardruntime.NewLocalVM(client, project.VM.Name)
 
-	vmState := findVMState(instances, project.VM.Name)
 	rows := make([]process.State, 0, len(projectConfig.Services))
-	if !strings.EqualFold(vmState, "Running") {
-		status := processStatusFromVMState(vmState)
-		for _, service := range projectConfig.Services {
-			rows = append(rows, process.StaticState(projectName, service, status))
+	if project.Runtime.Type == registry.RuntimeTypeLocalVM {
+		client := lima.NewClient(nil)
+		instances, err := client.List()
+		if err != nil {
+			return err
 		}
-		return writeProcessRows(os.Stdout, rows, project.VM.Name)
+		vmState := findVMState(instances, project.VM.Name)
+		if !strings.EqualFold(vmState, "Running") {
+			status := processStatusFromVMState(vmState)
+			for _, service := range projectConfig.Services {
+				rows = append(rows, process.StaticState(projectName, service, status))
+			}
+			return writeProcessRows(os.Stdout, rows, runtimeTargetLabel(project))
+		}
 	}
 
 	for _, service := range projectConfig.Services {
@@ -586,7 +591,7 @@ func runProcessList(parsed args) error {
 		}
 		rows = append(rows, process.ParseStatusOutput(projectName, service, output))
 	}
-	return writeProcessRows(os.Stdout, rows, project.VM.Name)
+	return writeProcessRows(os.Stdout, rows, runtimeTargetLabel(project))
 }
 
 func runProcessStart(parsed args) error {
@@ -598,7 +603,7 @@ func runProcessStart(parsed args) error {
 		return errors.New("process start uses the project registry; --project is not supported")
 	}
 
-	projectName, project, projectConfig, err := resolvedRuntimeProject(parsed, projectName)
+	projectName, project, projectConfig, err := resolvedProcessProject(parsed, projectName)
 	if err != nil {
 		return err
 	}
@@ -612,8 +617,10 @@ func runProcessStart(parsed args) error {
 		return err
 	}
 
-	client := lima.NewClient(nil)
-	target := yardruntime.NewLocalVM(client, project.VM.Name)
+	target, err := runtimeTargetForProject(project)
+	if err != nil {
+		return err
+	}
 	return target.Exec(command)
 }
 
@@ -626,7 +633,7 @@ func runProcessStop(parsed args) error {
 		return errors.New("process stop uses the project registry; --project is not supported")
 	}
 
-	projectName, project, projectConfig, err := resolvedRuntimeProject(parsed, projectName)
+	projectName, project, projectConfig, err := resolvedProcessProject(parsed, projectName)
 	if err != nil {
 		return err
 	}
@@ -639,8 +646,10 @@ func runProcessStop(parsed args) error {
 		return err
 	}
 
-	client := lima.NewClient(nil)
-	target := yardruntime.NewLocalVM(client, project.VM.Name)
+	target, err := runtimeTargetForProject(project)
+	if err != nil {
+		return err
+	}
 	return target.Exec(command)
 }
 
@@ -653,7 +662,7 @@ func runProcessLogs(parsed args) error {
 		return errors.New("process logs uses the project registry; --project is not supported")
 	}
 
-	projectName, project, projectConfig, err := resolvedRuntimeProject(parsed, projectName)
+	projectName, project, projectConfig, err := resolvedProcessProject(parsed, projectName)
 	if err != nil {
 		return err
 	}
@@ -666,8 +675,10 @@ func runProcessLogs(parsed args) error {
 		return err
 	}
 
-	client := lima.NewClient(nil)
-	target := yardruntime.NewLocalVM(client, project.VM.Name)
+	target, err := runtimeTargetForProject(project)
+	if err != nil {
+		return err
+	}
 	return target.Exec(command)
 }
 
@@ -839,6 +850,28 @@ func resolvedProjectConfig(parsed args) (config.ProjectConfig, error) {
 }
 
 func resolvedRuntimeProject(parsed args, name string) (string, registry.Project, config.ProjectConfig, error) {
+	projectName, project, projectConfig, err := resolvedProjectWithConfig(parsed, name)
+	if err != nil {
+		return "", registry.Project{}, config.ProjectConfig{}, err
+	}
+	if err := ensureLocalVMRuntime(project); err != nil {
+		return "", registry.Project{}, config.ProjectConfig{}, err
+	}
+	return projectName, project, projectConfig, nil
+}
+
+func resolvedProcessProject(parsed args, name string) (string, registry.Project, config.ProjectConfig, error) {
+	projectName, project, projectConfig, err := resolvedProjectWithConfig(parsed, name)
+	if err != nil {
+		return "", registry.Project{}, config.ProjectConfig{}, err
+	}
+	if project.Runtime.Type == registry.RuntimeTypeRemote {
+		projectConfig.RepoDir = project.Remote.Workdir
+	}
+	return projectName, project, projectConfig, nil
+}
+
+func resolvedProjectWithConfig(parsed args, name string) (string, registry.Project, config.ProjectConfig, error) {
 	workDir, err := os.Getwd()
 	if err != nil {
 		return "", registry.Project{}, config.ProjectConfig{}, err
@@ -846,9 +879,6 @@ func resolvedRuntimeProject(parsed args, name string) (string, registry.Project,
 
 	projectName, project, err := resolvedRegistryProject(parsed, name)
 	if err != nil {
-		return "", registry.Project{}, config.ProjectConfig{}, err
-	}
-	if err := ensureLocalVMRuntime(project); err != nil {
 		return "", registry.Project{}, config.ProjectConfig{}, err
 	}
 
@@ -890,6 +920,16 @@ func remoteReachabilityState(project registry.Project) string {
 		return "unreachable"
 	}
 	return "reachable"
+}
+
+func runtimeTargetLabel(project registry.Project) string {
+	if project.Runtime.Type == registry.RuntimeTypeRemote {
+		if project.Remote.User == "" || project.Remote.Host == "" {
+			return registry.RuntimeTypeRemote
+		}
+		return project.Remote.User + "@" + project.Remote.Host
+	}
+	return project.VM.Name
 }
 
 func ensureProjectVM(client lima.Client, projectConfig config.ProjectConfig) error {
@@ -1029,9 +1069,9 @@ func processStatusFromVMState(vmState string) string {
 	return "vm_" + normalized
 }
 
-func writeProcessRows(output io.Writer, rows []process.State, vmName string) error {
+func writeProcessRows(output io.Writer, rows []process.State, targetName string) error {
 	writer := tabwriter.NewWriter(output, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(writer, "PROJECT\tSERVICE\tSTATUS\tPID\tPORT\tVM\tCOMMAND\tLOG")
+	fmt.Fprintln(writer, "PROJECT\tSERVICE\tSTATUS\tPID\tPORT\tTARGET\tCOMMAND\tLOG")
 	for _, row := range rows {
 		fmt.Fprintf(
 			writer,
@@ -1041,7 +1081,7 @@ func writeProcessRows(output io.Writer, rows []process.State, vmName string) err
 			row.Status,
 			row.PID,
 			formatPort(row.Port),
-			vmName,
+			targetName,
 			row.Command,
 			row.Log,
 		)
@@ -1213,8 +1253,8 @@ Commands:
   init     Create a project .devctl.yml.
   vm       Manage Lima VMs.
   ssh      Inspect host SSH keys for Git onboarding.
-  exec     Execute a command in the current or named project's VM.
-  process  Manage configured dev service processes in the project VM.
+  exec     Execute a command in the current or named project's runtime target.
+  process  Manage configured dev service processes in the runtime target.
   start    Start the project VM and configured services.
   stop     Stop configured services, and dedicated VMs by default.
   status   Show projects and VM state in a table.
