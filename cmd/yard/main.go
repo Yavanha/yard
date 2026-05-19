@@ -694,15 +694,23 @@ func runStart(parsed args) error {
 	if len(parsed.positionals) == 1 {
 		projectName = parsed.positionals[0]
 	}
-	projectName, project, projectConfig, err := resolvedRuntimeProject(parsed, projectName)
+	projectName, project, projectConfig, err := resolvedProcessProject(parsed, projectName)
 	if err != nil {
 		return err
 	}
-	if projectConfig.VM.Provider != "auto" && projectConfig.VM.Provider != "lima" {
-		return fmt.Errorf("unsupported VM provider for start: %s", projectConfig.VM.Provider)
+
+	if project.Runtime.Type == registry.RuntimeTypeRemote {
+		target, err := runtimeTargetForProject(project)
+		if err != nil {
+			return err
+		}
+		return startProjectServices(target, projectName, projectConfig)
 	}
 
 	client := lima.NewClient(nil)
+	if projectConfig.VM.Provider != "auto" && projectConfig.VM.Provider != "lima" {
+		return fmt.Errorf("unsupported VM provider for start: %s", projectConfig.VM.Provider)
+	}
 	if err := ensureProjectVM(client, projectConfig); err != nil {
 		return err
 	}
@@ -722,14 +730,25 @@ func runStop(parsed args) error {
 	if len(parsed.positionals) == 1 {
 		projectName = parsed.positionals[0]
 	}
-	projectName, project, projectConfig, err := resolvedRuntimeProject(parsed, projectName)
+	projectName, project, projectConfig, err := resolvedProcessProject(parsed, projectName)
 	if err != nil {
 		return err
 	}
 
+	if project.Runtime.Type == registry.RuntimeTypeRemote {
+		if parsed.stopVM {
+			return errors.New("--vm requires a local-vm runtime target")
+		}
+		target, err := runtimeTargetForProject(project)
+		if err != nil {
+			return err
+		}
+		return stopProjectServices(target, projectName, projectConfig)
+	}
+
 	client := lima.NewClient(nil)
 	target := yardruntime.NewLocalVM(client, project.VM.Name)
-	if err := stopProjectServices(client, target, projectName, project, projectConfig); err != nil {
+	if err := stopLocalProjectServices(client, target, projectName, project, projectConfig); err != nil {
 		return err
 	}
 	if !shouldStopProjectVM(project, parsed.stopVM) {
@@ -783,6 +802,24 @@ func runStatus(parsed args) error {
 func runSetup(parsed args) error {
 	if len(parsed.positionals) > 1 {
 		return errors.New("usage: setup [project-name] [--project <path>]")
+	}
+	if parsed.projectPath == "" {
+		name := ""
+		if len(parsed.positionals) == 1 {
+			name = parsed.positionals[0]
+		}
+		_, project, err := resolvedRegistryProject(parsed, name)
+		if err != nil {
+			return err
+		}
+		if project.Runtime.Type == registry.RuntimeTypeRemote {
+			target := yardruntime.NewRemoteSSH(nil, project.Remote)
+			if err := target.CheckReachable(); err != nil {
+				return err
+			}
+			fmt.Printf("Remote target reachable: %s\n", runtimeTargetLabel(project))
+			return nil
+		}
 	}
 
 	projectConfig, err := resolvedProjectConfig(parsed)
@@ -971,7 +1008,7 @@ func startProjectServices(target yardruntime.Target, projectName string, project
 	return nil
 }
 
-func stopProjectServices(client lima.Client, target yardruntime.Target, projectName string, project registry.Project, projectConfig config.ProjectConfig) error {
+func stopLocalProjectServices(client lima.Client, target yardruntime.Target, projectName string, project registry.Project, projectConfig config.ProjectConfig) error {
 	instances, err := client.List()
 	if err != nil {
 		return err
@@ -982,6 +1019,10 @@ func stopProjectServices(client lima.Client, target yardruntime.Target, projectN
 		return nil
 	}
 
+	return stopProjectServices(target, projectName, projectConfig)
+}
+
+func stopProjectServices(target yardruntime.Target, projectName string, projectConfig config.ProjectConfig) error {
 	for index := len(projectConfig.Services) - 1; index >= 0; index-- {
 		service := projectConfig.Services[index]
 		command, err := process.StopCommand(projectName, service.Name)

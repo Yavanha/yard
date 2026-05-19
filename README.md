@@ -209,7 +209,7 @@ Notes de cadrage:
 - `runtime.type` explicite la cible d'execution locale: `local-vm` aujourd'hui, `remote-server` reserve au backend SSH futur.
 - `remote.host`, `remote.user`, `remote.port`, `remote.workdir` et `remote.identity_file` preparent la cible SSH future; `remote.identity_file` est seulement un chemin host-local, jamais le contenu d'une cle.
 - Les flags `--remote-*` sont acceptes uniquement avec `--runtime remote-server`; `--remote-port` vaut 22 par defaut.
-- `exec` et `process` fonctionnent deja sur `remote-server` via SSH; `status` affiche `reachable` ou `unreachable` pour ces cibles.
+- `exec`, `process`, `start` et `stop` fonctionnent deja sur `remote-server` via SSH; `setup` verifie seulement la reachability et `status` affiche `reachable` ou `unreachable` pour ces cibles.
 - `start` cree/demarre la VM puis lance les services sans doubler les processus deja ouverts; `stop` coupe les services et n'eteint une VM partagee qu'avec `--vm`.
 - `init` genere une config projet sans secrets ni adapters obligatoires; `--yes` donne le mode non interactif et `--force` est requis pour ecraser.
 - `ssh keys` liste les cles publiques detectees cote host avec fingerprint, commentaire et presence dans l'agent SSH, sans lire de cle privee.
