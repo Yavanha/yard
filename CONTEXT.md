@@ -82,7 +82,8 @@ _Avoid_: dependance coeur obligatoire
 - `yard project import` teste l'acces au repo avec une identite SSH host-side, clone dans un dossier vide ou manquant, puis enregistre le **Project** dans le **Project Registry**.
 - `yard project inspect` affiche les chemins locaux, la **Dev VM** cible et l'identite Git host-side enregistree pour un **Project**.
 - `yard project remove` supprime uniquement l'entree du **Project Registry**; il ne supprime pas le repo local ni la **Dev VM**.
-- `yard project add/import --runtime remote-server` exige les metadonnees SSH non secretes via prompts ou flags `--remote-*`; les commandes runtime continuent de refuser cette cible tant que le backend SSH n'existe pas.
+- `yard project add/import --runtime remote-server` exige les metadonnees SSH non secretes via prompts ou flags `--remote-*`.
+- `yard exec <remote-project> -- <command>` utilise SSH directement; `yard status` teste la reachability remote. Les autres commandes runtime continuent de refuser cette cible tant que les semantics remote ne sont pas implementees.
 - Les commandes interactives doivent toujours conserver un mode non interactif equivalent via arguments ou fichiers.
 
 ## Example dialogue

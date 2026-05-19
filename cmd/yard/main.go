@@ -516,12 +516,10 @@ func runExec(parsed args) error {
 	if err != nil {
 		return err
 	}
-	if err := ensureLocalVMRuntime(project); err != nil {
+	target, err := runtimeTargetForProject(project)
+	if err != nil {
 		return err
 	}
-
-	client := lima.NewClient(nil)
-	target := yardruntime.NewLocalVM(client, project.VM.Name)
 	return target.Exec(parsed.execCommand)
 }
 
@@ -764,7 +762,7 @@ func runStatus(parsed args) error {
 	if len(parsed.positionals) == 1 {
 		filter = parsed.positionals[0]
 	}
-	rows, err := buildStatusRows(reg, instances, filter)
+	rows, err := buildStatusRows(reg, instances, filter, remoteReachabilityState)
 	if err != nil {
 		return err
 	}
@@ -873,6 +871,25 @@ func ensureLocalVMRuntime(project registry.Project) error {
 		return fmt.Errorf("runtime target %s is not supported yet", project.Runtime.Type)
 	}
 	return nil
+}
+
+func runtimeTargetForProject(project registry.Project) (yardruntime.Target, error) {
+	switch project.Runtime.Type {
+	case registry.RuntimeTypeLocalVM:
+		return yardruntime.NewLocalVM(lima.NewClient(nil), project.VM.Name), nil
+	case registry.RuntimeTypeRemote:
+		return yardruntime.NewRemoteSSH(nil, project.Remote), nil
+	default:
+		return nil, fmt.Errorf("unsupported runtime.type: %s", project.Runtime.Type)
+	}
+}
+
+func remoteReachabilityState(project registry.Project) string {
+	target := yardruntime.NewRemoteSSH(nil, project.Remote)
+	if err := target.CheckReachable(); err != nil {
+		return "unreachable"
+	}
+	return "reachable"
 }
 
 func ensureProjectVM(client lima.Client, projectConfig config.ProjectConfig) error {
@@ -1039,7 +1056,7 @@ func formatPort(port int) string {
 	return fmt.Sprint(port)
 }
 
-func buildStatusRows(reg registry.Registry, instances []lima.Instance, filter string) ([]statusRow, error) {
+func buildStatusRows(reg registry.Registry, instances []lima.Instance, filter string, remoteState func(registry.Project) string) ([]statusRow, error) {
 	byVM := map[string]lima.Instance{}
 	for _, instance := range instances {
 		byVM[instance.Name] = instance
@@ -1058,7 +1075,11 @@ func buildStatusRows(reg registry.Registry, instances []lima.Instance, filter st
 		project := reg.Projects[name]
 		vmState := "missing"
 		if project.Runtime.Type != registry.RuntimeTypeLocalVM {
-			vmState = "unsupported"
+			if remoteState == nil {
+				vmState = "unsupported"
+			} else {
+				vmState = remoteState(project)
+			}
 		} else if instance, ok := byVM[project.VM.Name]; ok {
 			vmState = instance.Status
 		}

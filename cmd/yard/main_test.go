@@ -552,7 +552,7 @@ func TestBuildStatusRows(t *testing.T) {
 
 	rows, err := buildStatusRows(reg, []lima.Instance{
 		{Name: "front-vm", Status: "Running"},
-	}, "")
+	}, "", nil)
 	if err != nil {
 		t.Fatalf("buildStatusRows returned error: %v", err)
 	}
@@ -579,7 +579,7 @@ func TestBuildStatusRowsShowsRemoteRuntimeUnsupported(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rows, err := buildStatusRows(reg, nil, "")
+	rows, err := buildStatusRows(reg, nil, "", nil)
 	if err != nil {
 		t.Fatalf("buildStatusRows returned error: %v", err)
 	}
@@ -591,6 +591,26 @@ func TestBuildStatusRowsShowsRemoteRuntimeUnsupported(t *testing.T) {
 	assertEqual(t, rows[0].VM, "")
 	assertEqual(t, rows[0].VMState, "unsupported")
 	assertEqual(t, rows[0].VMMode, "")
+}
+
+func TestBuildStatusRowsChecksRemoteRuntimeReachability(t *testing.T) {
+	t.Parallel()
+
+	reg, err := registry.New().Add("remote", registry.Project{
+		Path:    "/tmp/remote",
+		Runtime: registry.RuntimeTarget{Type: registry.RuntimeTypeRemote},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := buildStatusRows(reg, nil, "", func(registry.Project) string {
+		return "reachable"
+	})
+	if err != nil {
+		t.Fatalf("buildStatusRows returned error: %v", err)
+	}
+	assertEqual(t, rows[0].VMState, "reachable")
 }
 
 func TestBuildStatusRowsFiltersProject(t *testing.T) {
@@ -605,7 +625,7 @@ func TestBuildStatusRowsFiltersProject(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rows, err := buildStatusRows(reg, nil, "api")
+	rows, err := buildStatusRows(reg, nil, "api", nil)
 	if err != nil {
 		t.Fatalf("buildStatusRows returned error: %v", err)
 	}
