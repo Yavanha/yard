@@ -137,6 +137,7 @@ func TestRunProjectImportRegistersRemoteRuntime(t *testing.T) {
 		remotePort:         2222,
 		remoteWorkdir:      "/home/ubuntu/workspaces/api",
 		remoteIdentityFile: remoteIdentity,
+		remoteHostKey:      "SHA256:host123",
 	}, importer, fingerprinter, &bytes.Buffer{})
 	if err != nil {
 		t.Fatalf("runProjectImportWithDeps returned error: %v", err)
@@ -153,6 +154,7 @@ func TestRunProjectImportRegistersRemoteRuntime(t *testing.T) {
 	assertEqual(t, project.Remote.Port, 2222)
 	assertEqual(t, project.Remote.Workdir, "/home/ubuntu/workspaces/api")
 	assertEqual(t, project.Remote.IdentityFile, remoteIdentity)
+	assertEqual(t, project.Remote.HostKeyFingerprint, "SHA256:host123")
 	assertEqual(t, project.VM.Mode, "")
 	assertEqual(t, project.VM.Name, "")
 }

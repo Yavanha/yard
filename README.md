@@ -169,10 +169,10 @@ Registre projets host:
 ```bash
 go run ./cmd/yard project add
 go run ./cmd/yard project add example /path/to/repo --runtime local-vm
-go run ./cmd/yard project add remote-api /path/to/repo --runtime remote-server --remote-host dev.example.com --remote-user ubuntu --remote-workdir /home/ubuntu/workspaces/api
+go run ./cmd/yard project add remote-api /path/to/repo --runtime remote-server --remote-host dev.example.com --remote-user ubuntu --remote-workdir /home/ubuntu/workspaces/api --remote-host-key SHA256:...
 go run ./cmd/yard project import
 go run ./cmd/yard project import example --repo git@github.com:acme/example.git --identity ~/.ssh/yard_acme --path /path/to/repo --runtime local-vm
-go run ./cmd/yard project import remote-api --repo git@github.com:acme/api.git --identity ~/.ssh/yard_acme --path /path/to/repo --runtime remote-server --remote-host dev.example.com --remote-user ubuntu --remote-workdir /home/ubuntu/workspaces/api
+go run ./cmd/yard project import remote-api --repo git@github.com:acme/api.git --identity ~/.ssh/yard_acme --path /path/to/repo --runtime remote-server --remote-host dev.example.com --remote-user ubuntu --remote-workdir /home/ubuntu/workspaces/api --remote-host-key SHA256:...
 go run ./cmd/yard project inspect example
 go run ./cmd/yard project list
 go run ./cmd/yard project remove example
@@ -187,6 +187,7 @@ go run ./cmd/yard vm start example
 go run ./cmd/yard vm stop example
 go run ./cmd/yard exec example -- uname -a
 go run ./cmd/yard ssh keys
+go run ./cmd/yard ssh host-key dev.example.com --port 22
 go run ./cmd/yard process list example
 go run ./cmd/yard process start example app
 go run ./cmd/yard process logs example app --tail 80
@@ -206,13 +207,13 @@ Notes de cadrage:
 - `Project` reste un repo enregistre. Un backend separe sera donc un autre `Project`.
 - Un futur `Environment` pourra composer plusieurs `Projects` pour front, backend, workers ou services.
 - Dans un meme repo, declarer plusieurs `services` vendor-neutral, par exemple `web`, `api` ou `worker`; Yard ne depend pas de Nest, PHP, Vite ou Supabase pour les piloter.
-- `runtime.type` explicite la cible d'execution locale: `local-vm` aujourd'hui, `remote-server` reserve au backend SSH futur.
-- `remote.host`, `remote.user`, `remote.port`, `remote.workdir` et `remote.identity_file` preparent la cible SSH future; `remote.identity_file` est seulement un chemin host-local, jamais le contenu d'une cle.
+- `runtime.type` explicite la cible d'execution: `local-vm` pour Lima local, `remote-server` pour une cible SSH.
+- `remote.host`, `remote.user`, `remote.port`, `remote.workdir`, `remote.identity_file` et `remote.host_key_fingerprint` configurent la cible SSH; `remote.identity_file` est seulement un chemin host-local, jamais le contenu d'une cle, et `remote.host_key_fingerprint` est une empreinte de cle hote non secrete verifiee avant connexion quand elle est fournie.
 - Les flags `--remote-*` sont acceptes uniquement avec `--runtime remote-server`; `--remote-port` vaut 22 par defaut.
-- `exec`, `process`, `start` et `stop` fonctionnent deja sur `remote-server` via SSH; `setup` verifie seulement la reachability et `status` affiche `reachable` ou `unreachable` pour ces cibles.
+- `exec`, `process`, `start` et `stop` fonctionnent deja sur `remote-server` via SSH; `setup` verifie la reachability et l'existence de `remote.workdir` sans creation ni installation, et `status` expose `TARGET_STATE` avec `reachable` ou `unreachable` pour ces cibles.
 - `start` cree/demarre la VM puis lance les services sans doubler les processus deja ouverts; `stop` coupe les services et n'eteint une VM partagee qu'avec `--vm`.
 - `init` genere une config projet sans secrets ni adapters obligatoires; `--yes` donne le mode non interactif et `--force` est requis pour ecraser.
-- `ssh keys` liste les cles publiques detectees cote host avec fingerprint, commentaire et presence dans l'agent SSH, sans lire de cle privee.
+- `ssh keys` liste les cles publiques detectees cote host avec fingerprint, commentaire et presence dans l'agent SSH, sans lire de cle privee; `ssh host-key` scanne les fingerprints publics d'un serveur distant.
 - `project import` sans arguments lance un wizard SSH: selection de cle existante ou creation host-side via `ssh-keygen`, avec upload optionnel par `gh`; les chemins `yes` et `not sure` testent la cle choisie et proposent une creation si elle echoue.
 - `project import` teste l'acces Git avec `GIT_SSH_COMMAND`, refuse un dossier cible non vide, clone, puis enregistre le projet et son identite Git dans le registre host.
 - `project inspect` affiche les chemins locaux, la VM cible et l'identite Git host-side enregistree pour un projet.

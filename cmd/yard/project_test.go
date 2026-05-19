@@ -31,6 +31,8 @@ func TestParseProjectAddArgs(t *testing.T) {
 		"/home/ubuntu/workspaces/example",
 		"--remote-identity",
 		"~/.ssh/yard_remote_ed25519",
+		"--remote-host-key",
+		"SHA256:host123",
 	})
 	if err != nil {
 		t.Fatalf("parseArgs returned error: %v", err)
@@ -46,6 +48,7 @@ func TestParseProjectAddArgs(t *testing.T) {
 	assertEqual(t, parsed.remotePort, 2222)
 	assertEqual(t, parsed.remoteWorkdir, "/home/ubuntu/workspaces/example")
 	assertEqual(t, parsed.remoteIdentityFile, "~/.ssh/yard_remote_ed25519")
+	assertEqual(t, parsed.remoteHostKey, "SHA256:host123")
 }
 
 func TestParseProjectAddVMArgs(t *testing.T) {
@@ -158,6 +161,7 @@ func TestRunProjectAddRemoteRuntime(t *testing.T) {
 		remotePort:         2222,
 		remoteWorkdir:      "/home/ubuntu/workspaces/remote",
 		remoteIdentityFile: remoteIdentity,
+		remoteHostKey:      "SHA256:host123",
 	})
 	if err != nil {
 		t.Fatalf("runProjectAdd returned error: %v", err)
@@ -174,6 +178,7 @@ func TestRunProjectAddRemoteRuntime(t *testing.T) {
 	assertEqual(t, project.Remote.Port, 2222)
 	assertEqual(t, project.Remote.Workdir, "/home/ubuntu/workspaces/remote")
 	assertEqual(t, project.Remote.IdentityFile, remoteIdentity)
+	assertEqual(t, project.Remote.HostKeyFingerprint, "SHA256:host123")
 	assertEqual(t, project.VM.Mode, "")
 	assertEqual(t, project.VM.Name, "")
 }
@@ -232,6 +237,7 @@ func TestRunProjectAddInteractiveRemoteRuntime(t *testing.T) {
 		"2222",
 		"/srv/api",
 		remoteIdentity,
+		"SHA256:host123",
 		"yes",
 		"",
 	}, "\n")
@@ -252,6 +258,7 @@ func TestRunProjectAddInteractiveRemoteRuntime(t *testing.T) {
 	assertEqual(t, project.Remote.Port, 2222)
 	assertEqual(t, project.Remote.Workdir, "/srv/api")
 	assertEqual(t, project.Remote.IdentityFile, remoteIdentity)
+	assertEqual(t, project.Remote.HostKeyFingerprint, "SHA256:host123")
 	assertEqual(t, project.VM.Mode, "")
 	assertEqual(t, project.VM.Name, "")
 }
@@ -321,11 +328,12 @@ func TestRunProjectInspectPrintsRemoteMetadata(t *testing.T) {
 		Path:    "/tmp/api",
 		Runtime: registry.RuntimeTarget{Type: registry.RuntimeTypeRemote},
 		Remote: registry.RemoteServer{
-			Host:         "dev.example.com",
-			User:         "ubuntu",
-			Port:         2222,
-			Workdir:      "/srv/api",
-			IdentityFile: "/tmp/ssh/remote",
+			Host:               "dev.example.com",
+			User:               "ubuntu",
+			Port:               2222,
+			Workdir:            "/srv/api",
+			IdentityFile:       "/tmp/ssh/remote",
+			HostKeyFingerprint: "SHA256:host123",
 		},
 	})
 	if err != nil {
@@ -355,6 +363,8 @@ func TestRunProjectInspectPrintsRemoteMetadata(t *testing.T) {
 		"/srv/api",
 		"remote.identity_file",
 		"/tmp/ssh/remote",
+		"remote.host_key_fingerprint",
+		"SHA256:host123",
 	} {
 		if !strings.Contains(output.String(), expected) {
 			t.Fatalf("expected output to contain %q:\n%s", expected, output.String())

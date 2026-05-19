@@ -236,11 +236,12 @@ func resolvedRemoteServer(parsed args, runtimeType string) (registry.RemoteServe
 
 func remoteServerFromArgs(parsed args) registry.RemoteServer {
 	return registry.RemoteServer{
-		Host:         parsed.remoteHost,
-		User:         parsed.remoteUser,
-		Port:         parsed.remotePort,
-		Workdir:      parsed.remoteWorkdir,
-		IdentityFile: parsed.remoteIdentityFile,
+		Host:               parsed.remoteHost,
+		User:               parsed.remoteUser,
+		Port:               parsed.remotePort,
+		Workdir:            parsed.remoteWorkdir,
+		IdentityFile:       parsed.remoteIdentityFile,
+		HostKeyFingerprint: parsed.remoteHostKey,
 	}
 }
 
@@ -324,12 +325,18 @@ func askRemoteServer(prompter prompt.Prompter, parsed args, projectPath string) 
 		}
 	}
 
+	hostKey, err := prompter.Ask("Remote host key fingerprint", parsed.remoteHostKey, false)
+	if err != nil {
+		return registry.RemoteServer{}, err
+	}
+
 	return registry.RemoteServer{
-		Host:         host,
-		User:         user,
-		Port:         port,
-		Workdir:      workdir,
-		IdentityFile: identityFile,
+		Host:               host,
+		User:               user,
+		Port:               port,
+		Workdir:            workdir,
+		IdentityFile:       identityFile,
+		HostKeyFingerprint: hostKey,
 	}, nil
 }
 
@@ -367,7 +374,8 @@ func remoteServerSet(remote registry.RemoteServer) bool {
 		remote.User != "" ||
 		remote.Port != 0 ||
 		remote.Workdir != "" ||
-		remote.IdentityFile != ""
+		remote.IdentityFile != "" ||
+		remote.HostKeyFingerprint != ""
 }
 
 func formatRemotePort(port int) string {
@@ -479,6 +487,7 @@ func writeProjectInspect(output io.Writer, currentProject string, name string, p
 	fmt.Fprintf(writer, "remote.port\t%s\n", formatRemotePort(project.Remote.Port))
 	fmt.Fprintf(writer, "remote.workdir\t%s\n", formatEmpty(project.Remote.Workdir))
 	fmt.Fprintf(writer, "remote.identity_file\t%s\n", formatEmpty(project.Remote.IdentityFile))
+	fmt.Fprintf(writer, "remote.host_key_fingerprint\t%s\n", formatEmpty(project.Remote.HostKeyFingerprint))
 	fmt.Fprintf(writer, "vm.mode\t%s\n", formatEmpty(project.VM.Mode))
 	fmt.Fprintf(writer, "vm.name\t%s\n", formatEmpty(project.VM.Name))
 	fmt.Fprintf(writer, "git.identity_file\t%s\n", formatEmpty(project.Git.IdentityFile))

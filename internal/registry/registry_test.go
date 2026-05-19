@@ -30,11 +30,12 @@ func TestAddProjectAcceptsRemoteRuntimeTarget(t *testing.T) {
 		Path:    "/tmp/example",
 		Runtime: RuntimeTarget{Type: "remote-server"},
 		Remote: RemoteServer{
-			Host:         "dev.example.com",
-			User:         "ubuntu",
-			Port:         2222,
-			Workdir:      "/home/ubuntu/workspaces/example",
-			IdentityFile: "/tmp/ssh/yard_remote_ed25519",
+			Host:               "dev.example.com",
+			User:               "ubuntu",
+			Port:               2222,
+			Workdir:            "/home/ubuntu/workspaces/example",
+			IdentityFile:       "/tmp/ssh/yard_remote_ed25519",
+			HostKeyFingerprint: "SHA256:host123",
 		},
 	})
 	if err != nil {
@@ -48,6 +49,7 @@ func TestAddProjectAcceptsRemoteRuntimeTarget(t *testing.T) {
 	assertEqual(t, project.Remote.Port, 2222)
 	assertEqual(t, project.Remote.Workdir, "/home/ubuntu/workspaces/example")
 	assertEqual(t, project.Remote.IdentityFile, "/tmp/ssh/yard_remote_ed25519")
+	assertEqual(t, project.Remote.HostKeyFingerprint, "SHA256:host123")
 	assertEqual(t, project.VM.Mode, "")
 	assertEqual(t, project.VM.Name, "")
 }
@@ -205,6 +207,7 @@ projects:
       port: 2222
       workdir: /home/ubuntu/workspaces/example
       identity_file: /tmp/ssh/yard_remote_ed25519
+      host_key_fingerprint: SHA256:host123
     vm:
       mode: dedicated
       name: example-vm
@@ -225,6 +228,7 @@ projects:
 	assertEqual(t, project.Remote.Port, 2222)
 	assertEqual(t, project.Remote.Workdir, "/home/ubuntu/workspaces/example")
 	assertEqual(t, project.Remote.IdentityFile, "/tmp/ssh/yard_remote_ed25519")
+	assertEqual(t, project.Remote.HostKeyFingerprint, "SHA256:host123")
 	assertEqual(t, project.VM.Mode, "dedicated")
 	assertEqual(t, project.VM.Name, "example-vm")
 }
@@ -291,11 +295,12 @@ func TestMarshalRemoteRuntimeOmitsVMDefaults(t *testing.T) {
 		Path:    "/tmp/api",
 		Runtime: RuntimeTarget{Type: "remote-server"},
 		Remote: RemoteServer{
-			Host:         "dev.example.com",
-			User:         "ubuntu",
-			Port:         2222,
-			Workdir:      "/home/ubuntu/workspaces/api",
-			IdentityFile: "/tmp/ssh/yard_remote_ed25519",
+			Host:               "dev.example.com",
+			User:               "ubuntu",
+			Port:               2222,
+			Workdir:            "/home/ubuntu/workspaces/api",
+			IdentityFile:       "/tmp/ssh/yard_remote_ed25519",
+			HostKeyFingerprint: "SHA256:host123",
 		},
 	})
 	if err != nil {
@@ -312,6 +317,7 @@ func TestMarshalRemoteRuntimeOmitsVMDefaults(t *testing.T) {
 		"      port: 2222\n",
 		"      workdir: /home/ubuntu/workspaces/api\n",
 		"      identity_file: /tmp/ssh/yard_remote_ed25519\n",
+		"      host_key_fingerprint: SHA256:host123\n",
 	} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("expected output to contain %q:\n%s", expected, output)

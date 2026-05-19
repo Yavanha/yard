@@ -45,11 +45,12 @@ type RuntimeTarget struct {
 }
 
 type RemoteServer struct {
-	Host         string
-	User         string
-	Port         int
-	Workdir      string
-	IdentityFile string
+	Host               string
+	User               string
+	Port               int
+	Workdir            string
+	IdentityFile       string
+	HostKeyFingerprint string
 }
 
 type VM struct {
@@ -312,6 +313,8 @@ func Parse(content []byte) (Registry, error) {
 					project.Remote.Workdir = value
 				case "identity_file":
 					project.Remote.IdentityFile = value
+				case "host_key_fingerprint":
+					project.Remote.HostKeyFingerprint = value
 				default:
 					return Registry{}, unsupportedLineError(lineNumber, line)
 				}
@@ -390,7 +393,7 @@ func Marshal(reg Registry) []byte {
 		builder.WriteString("      type: ")
 		builder.WriteString(project.Runtime.Type)
 		builder.WriteString("\n")
-		if project.Remote.Host != "" || project.Remote.User != "" || project.Remote.Port != 0 || project.Remote.Workdir != "" || project.Remote.IdentityFile != "" {
+		if project.Remote.Host != "" || project.Remote.User != "" || project.Remote.Port != 0 || project.Remote.Workdir != "" || project.Remote.IdentityFile != "" || project.Remote.HostKeyFingerprint != "" {
 			builder.WriteString("    remote:\n")
 			if project.Remote.Host != "" {
 				builder.WriteString("      host: ")
@@ -415,6 +418,11 @@ func Marshal(reg Registry) []byte {
 			if project.Remote.IdentityFile != "" {
 				builder.WriteString("      identity_file: ")
 				builder.WriteString(project.Remote.IdentityFile)
+				builder.WriteString("\n")
+			}
+			if project.Remote.HostKeyFingerprint != "" {
+				builder.WriteString("      host_key_fingerprint: ")
+				builder.WriteString(project.Remote.HostKeyFingerprint)
 				builder.WriteString("\n")
 			}
 		}

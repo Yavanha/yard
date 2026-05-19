@@ -81,6 +81,65 @@ func TestRemoteSSHExecUsesSSH(t *testing.T) {
 	}
 }
 
+func TestRemoteSSHExecChecksHostKeyFingerprint(t *testing.T) {
+	t.Parallel()
+
+	runner := &fakeRunner{
+		outputs: map[string][]byte{
+			"ssh-keyscan -p 2222 -T 5 dev.example.com": []byte("dev.example.com ssh-ed25519 YWJj\n"),
+		},
+	}
+	target := NewRemoteSSH(runner, registry.RemoteServer{
+		Host:               "dev.example.com",
+		User:               "ubuntu",
+		Port:               2222,
+		HostKeyFingerprint: "SHA256:ungWv48Bz+pBQUDeXa4iI7ADYaOWF3qctBD/YfIAFa0",
+	})
+
+	if err := target.Exec([]string{"true"}); err != nil {
+		t.Fatalf("Exec returned error: %v", err)
+	}
+	if len(runner.runs) != 1 {
+		t.Fatalf("expected one ssh run, got %#v", runner.runs)
+	}
+}
+
+func TestRemoteSSHExecRejectsHostKeyMismatch(t *testing.T) {
+	t.Parallel()
+
+	runner := &fakeRunner{
+		outputs: map[string][]byte{
+			"ssh-keyscan -p 2222 -T 5 dev.example.com": []byte("dev.example.com ssh-ed25519 YWJj\n"),
+		},
+	}
+	target := NewRemoteSSH(runner, registry.RemoteServer{
+		Host:               "dev.example.com",
+		User:               "ubuntu",
+		Port:               2222,
+		HostKeyFingerprint: "SHA256:expected",
+	})
+
+	err := target.Exec([]string{"true"})
+	if err == nil {
+		t.Fatal("expected host key mismatch to fail")
+	}
+	if len(runner.runs) != 0 {
+		t.Fatalf("expected ssh not to run, got %#v", runner.runs)
+	}
+}
+
+func TestRemoteHostKeyFingerprints(t *testing.T) {
+	t.Parallel()
+
+	fingerprints, err := RemoteHostKeyFingerprints([]byte("# comment\ndev.example.com ssh-ed25519 YWJj\n"))
+	if err != nil {
+		t.Fatalf("RemoteHostKeyFingerprints returned error: %v", err)
+	}
+	if got, want := fingerprints[0], "SHA256:ungWv48Bz+pBQUDeXa4iI7ADYaOWF3qctBD/YfIAFa0"; got != want {
+		t.Fatalf("expected %q, got %q", want, got)
+	}
+}
+
 func TestRemoteSSHValidatesHost(t *testing.T) {
 	t.Parallel()
 

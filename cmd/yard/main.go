@@ -36,6 +36,7 @@ type args struct {
 	remotePort         int
 	remoteWorkdir      string
 	remoteIdentityFile string
+	remoteHostKey      string
 	vmMode             string
 	vmName             string
 	vmProvider         string
@@ -198,6 +199,12 @@ func parseArgs(argv []string) (args, error) {
 				return args{}, errors.New("--remote-identity requires a path")
 			}
 			parsed.remoteIdentityFile = argv[index+1]
+			index++
+		case "--remote-host-key":
+			if index+1 >= len(argv) {
+				return args{}, errors.New("--remote-host-key requires a fingerprint")
+			}
+			parsed.remoteHostKey = argv[index+1]
 			index++
 		case "--vm-mode":
 			if index+1 >= len(argv) {
@@ -730,15 +737,21 @@ func runStop(parsed args) error {
 	if len(parsed.positionals) == 1 {
 		projectName = parsed.positionals[0]
 	}
+	if parsed.stopVM {
+		_, project, err := resolvedRegistryProject(parsed, projectName)
+		if err != nil {
+			return err
+		}
+		if project.Runtime.Type == registry.RuntimeTypeRemote {
+			return errors.New("--vm requires a local-vm runtime target")
+		}
+	}
 	projectName, project, projectConfig, err := resolvedProcessProject(parsed, projectName)
 	if err != nil {
 		return err
 	}
 
 	if project.Runtime.Type == registry.RuntimeTypeRemote {
-		if parsed.stopVM {
-			return errors.New("--vm requires a local-vm runtime target")
-		}
 		target, err := runtimeTargetForProject(project)
 		if err != nil {
 			return err
@@ -758,14 +771,14 @@ func runStop(parsed args) error {
 }
 
 type statusRow struct {
-	Current bool
-	Project string
-	Runtime string
-	VM      string
-	VMState string
-	VMMode  string
-	Config  string
-	Path    string
+	Current     bool
+	Project     string
+	Runtime     string
+	Target      string
+	TargetState string
+	VMMode      string
+	Config      string
+	Path        string
 }
 
 func runStatus(parsed args) error {
@@ -782,15 +795,17 @@ func runStatus(parsed args) error {
 		return err
 	}
 
-	client := lima.NewClient(nil)
-	instances, err := client.List()
-	if err != nil {
-		return err
-	}
-
 	filter := ""
 	if len(parsed.positionals) == 1 {
 		filter = parsed.positionals[0]
+	}
+	instances := []lima.Instance{}
+	if statusNeedsLocalVMInstances(reg, filter) {
+		client := lima.NewClient(nil)
+		instances, err = client.List()
+		if err != nil {
+			return err
+		}
 	}
 	rows, err := buildStatusRows(reg, instances, filter, remoteReachabilityState)
 	if err != nil {
@@ -813,12 +828,7 @@ func runSetup(parsed args) error {
 			return err
 		}
 		if project.Runtime.Type == registry.RuntimeTypeRemote {
-			target := yardruntime.NewRemoteSSH(nil, project.Remote)
-			if err := target.CheckReachable(); err != nil {
-				return err
-			}
-			fmt.Printf("Remote target reachable: %s\n", runtimeTargetLabel(project))
-			return nil
+			return runRemoteSetup(project, yardruntime.ExecRunner{Stderr: io.Discard}, os.Stdout)
 		}
 	}
 
@@ -952,11 +962,61 @@ func runtimeTargetForProject(project registry.Project) (yardruntime.Target, erro
 }
 
 func remoteReachabilityState(project registry.Project) string {
-	target := yardruntime.NewRemoteSSH(nil, project.Remote)
+	return remoteReachabilityStateWithRunner(project, yardruntime.ExecRunner{Stderr: io.Discard})
+}
+
+func remoteReachabilityStateWithRunner(project registry.Project, runner yardruntime.Runner) string {
+	target := yardruntime.NewRemoteSSH(runner, project.Remote)
 	if err := target.CheckReachable(); err != nil {
 		return "unreachable"
 	}
 	return "reachable"
+}
+
+func runRemoteSetup(project registry.Project, runner yardruntime.Runner, output io.Writer) error {
+	if project.Remote.Workdir == "" {
+		return errors.New("remote.workdir is required")
+	}
+	target := yardruntime.NewRemoteSSH(runner, project.Remote)
+	if err := target.CheckHostKey(); err != nil {
+		return fmt.Errorf("remote host key check failed: %s: %w", runtimeTargetLabel(project), err)
+	}
+	remote := project.Remote
+	remote.HostKeyFingerprint = ""
+	target = yardruntime.NewRemoteSSH(runner, remote)
+	if err := target.CheckReachable(); err != nil {
+		return fmt.Errorf("remote target unreachable: %s: %w", runtimeTargetLabel(project), err)
+	}
+	if err := target.Exec(remoteWorkdirCheckCommand(project.Remote.Workdir)); err != nil {
+		return fmt.Errorf("remote workdir not found: %s: %w", project.Remote.Workdir, err)
+	}
+	fmt.Fprintf(output, "Remote target reachable: %s\n", runtimeTargetLabel(project))
+	fmt.Fprintf(output, "Remote workdir ready: %s\n", project.Remote.Workdir)
+	return nil
+}
+
+func remoteWorkdirCheckCommand(workdir string) []string {
+	return []string{"sh", "-lc", "test -d " + shellQuote(workdir)}
+}
+
+func shellQuote(value string) string {
+	if value == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
+}
+
+func statusNeedsLocalVMInstances(reg registry.Registry, filter string) bool {
+	if filter != "" {
+		project, ok := reg.Projects[filter]
+		return ok && project.Runtime.Type == registry.RuntimeTypeLocalVM
+	}
+	for _, name := range reg.ProjectNames() {
+		if reg.Projects[name].Runtime.Type == registry.RuntimeTypeLocalVM {
+			return true
+		}
+	}
+	return false
 }
 
 func runtimeTargetLabel(project registry.Project) string {
@@ -1154,25 +1214,27 @@ func buildStatusRows(reg registry.Registry, instances []lima.Instance, filter st
 	rows := make([]statusRow, 0, len(names))
 	for _, name := range names {
 		project := reg.Projects[name]
-		vmState := "missing"
+		target := project.VM.Name
+		targetState := "missing"
 		if project.Runtime.Type != registry.RuntimeTypeLocalVM {
+			target = runtimeTargetLabel(project)
 			if remoteState == nil {
-				vmState = "unsupported"
+				targetState = "unsupported"
 			} else {
-				vmState = remoteState(project)
+				targetState = remoteState(project)
 			}
 		} else if instance, ok := byVM[project.VM.Name]; ok {
-			vmState = instance.Status
+			targetState = instance.Status
 		}
 		rows = append(rows, statusRow{
-			Current: reg.CurrentProject == name,
-			Project: name,
-			Runtime: project.Runtime.Type,
-			VM:      project.VM.Name,
-			VMState: vmState,
-			VMMode:  project.VM.Mode,
-			Config:  project.Config,
-			Path:    project.Path,
+			Current:     reg.CurrentProject == name,
+			Project:     name,
+			Runtime:     project.Runtime.Type,
+			Target:      target,
+			TargetState: targetState,
+			VMMode:      project.VM.Mode,
+			Config:      project.Config,
+			Path:        project.Path,
 		})
 	}
 	return rows, nil
@@ -1180,7 +1242,7 @@ func buildStatusRows(reg registry.Registry, instances []lima.Instance, filter st
 
 func writeStatusRows(output io.Writer, rows []statusRow) error {
 	writer := tabwriter.NewWriter(output, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(writer, "CURRENT\tPROJECT\tRUNTIME\tVM\tVM_STATE\tVM_MODE\tCONFIG\tPATH")
+	fmt.Fprintln(writer, "CURRENT\tPROJECT\tRUNTIME\tTARGET\tTARGET_STATE\tVM_MODE\tCONFIG\tPATH")
 	for _, row := range rows {
 		current := ""
 		if row.Current {
@@ -1192,8 +1254,8 @@ func writeStatusRows(output io.Writer, rows []statusRow) error {
 			current,
 			row.Project,
 			formatEmpty(row.Runtime),
-			formatEmpty(row.VM),
-			row.VMState,
+			formatEmpty(row.Target),
+			row.TargetState,
 			formatEmpty(row.VMMode),
 			row.Config,
 			row.Path,
@@ -1263,9 +1325,9 @@ Usage:
   go run ./cmd/yard --help
   go run ./cmd/yard config [project-name] [--project <path>]
   go run ./cmd/yard project add
-  go run ./cmd/yard project add <name> <path> [--config <path>] [--runtime local-vm|remote-server] [--remote-host <host>] [--remote-user <user>] [--remote-port <port>] [--remote-workdir <path>] [--remote-identity <path>] [--vm-mode shared|dedicated] [--vm-name <name>]
+  go run ./cmd/yard project add <name> <path> [--config <path>] [--runtime local-vm|remote-server] [--remote-host <host>] [--remote-user <user>] [--remote-port <port>] [--remote-workdir <path>] [--remote-identity <path>] [--remote-host-key <fingerprint>] [--vm-mode shared|dedicated] [--vm-name <name>]
   go run ./cmd/yard project import
-  go run ./cmd/yard project import <name> --repo <url> --identity <path> --path <path> [--runtime local-vm|remote-server] [--remote-host <host>] [--remote-user <user>] [--remote-port <port>] [--remote-workdir <path>] [--remote-identity <path>]
+  go run ./cmd/yard project import <name> --repo <url> --identity <path> --path <path> [--runtime local-vm|remote-server] [--remote-host <host>] [--remote-user <user>] [--remote-port <port>] [--remote-workdir <path>] [--remote-identity <path>] [--remote-host-key <fingerprint>]
   go run ./cmd/yard project inspect [name]
   go run ./cmd/yard project list
   go run ./cmd/yard project remove <name>
@@ -1277,6 +1339,7 @@ Usage:
   go run ./cmd/yard vm stop [project-or-vm]
   go run ./cmd/yard vm exec [project-or-vm] -- <command>
   go run ./cmd/yard ssh keys
+  go run ./cmd/yard ssh host-key <host> [--port <port>]
   go run ./cmd/yard exec [project-name] -- <command>
   go run ./cmd/yard process list [project-name]
   go run ./cmd/yard process start [project-name] <service-name>
@@ -1293,12 +1356,12 @@ Commands:
   use      Set the current project in the host project registry.
   init     Create a project .devctl.yml.
   vm       Manage Lima VMs.
-  ssh      Inspect host SSH keys for Git onboarding.
+  ssh      Inspect host SSH keys and remote host key fingerprints.
   exec     Execute a command in the current or named project's runtime target.
   process  Manage configured dev service processes in the runtime target.
   start    Start the project VM and configured services.
   stop     Stop configured services, and dedicated VMs by default.
-  status   Show projects and VM state in a table.
-  setup    Create the project VM if it does not exist.
+  status   Show projects and runtime target state in a table.
+  setup    Create the local VM or check the remote target.
 `, version)
 }

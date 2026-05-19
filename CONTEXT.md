@@ -82,9 +82,10 @@ _Avoid_: dependance coeur obligatoire
 - `yard project import` teste l'acces au repo avec une identite SSH host-side, clone dans un dossier vide ou manquant, puis enregistre le **Project** dans le **Project Registry**.
 - `yard project inspect` affiche les chemins locaux, la **Dev VM** cible et l'identite Git host-side enregistree pour un **Project**.
 - `yard project remove` supprime uniquement l'entree du **Project Registry**; il ne supprime pas le repo local ni la **Dev VM**.
+- `yard ssh host-key <host>` affiche les fingerprints publics d'un **Remote Server** pour renseigner `remote.host_key_fingerprint`.
 - `yard project add/import --runtime remote-server` exige les metadonnees SSH non secretes via prompts ou flags `--remote-*`.
 - `yard exec <remote-project> -- <command>`, `yard process ...`, `yard start` et `yard stop` utilisent SSH directement pour `remote-server`. `remote.workdir` remplace `repo_dir` pour les scripts de process distants.
-- `yard setup <remote-project>` verifie seulement la reachability SSH; aucun bootstrap destructif ou installation d'outils n'est fait.
+- `yard setup <remote-project>` verifie la reachability SSH et l'existence de `remote.workdir`; aucun bootstrap destructif, creation de repertoire ou installation d'outils n'est fait.
 - Les commandes interactives doivent toujours conserver un mode non interactif equivalent via arguments ou fichiers.
 
 ## Example dialogue
@@ -141,6 +142,7 @@ projects:
       port: 22
       workdir: /home/ubuntu/workspaces/api
       identity_file: /Users/me/.ssh/yard_remote_ed25519
+      host_key_fingerprint: SHA256:...
 ```
 
-`config` est optionnel et vaut `<path>/.devctl.yml` par defaut pendant la migration. `git` est optionnel et reste local a la machine hote. `runtime.type` vaut `local-vm` par defaut; `remote-server` est reserve au backend SSH futur. `remote` est optionnel, host-local, et ne stocke que des metadonnees non secretes; `remote.identity_file` est un chemin vers une cle privee hote, jamais le contenu de la cle. `vm.mode` vaut `shared` par defaut, et `vm.name` vaut `yard-shared` quand le mode est partage.
+`config` est optionnel et vaut `<path>/.devctl.yml` par defaut pendant la migration. `git` est optionnel et reste local a la machine hote. `runtime.type` vaut `local-vm` par defaut et peut etre `remote-server` pour une cible SSH. `remote` est optionnel, host-local, et ne stocke que des metadonnees non secretes; `remote.identity_file` est un chemin vers une cle privee hote, jamais le contenu de la cle, et `remote.host_key_fingerprint` est une empreinte de cle hote non secrete verifiee avant connexion quand elle est fournie. `vm.mode` vaut `shared` par defaut, et `vm.name` vaut `yard-shared` quand le mode est partage.

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -597,9 +598,10 @@ func TestBuildStatusRows(t *testing.T) {
 	assertEqual(t, rows[0].Project, "api")
 	assertEqual(t, rows[0].Current, true)
 	assertEqual(t, rows[0].Runtime, "local-vm")
-	assertEqual(t, rows[0].VMState, "missing")
+	assertEqual(t, rows[0].Target, "api-vm")
+	assertEqual(t, rows[0].TargetState, "missing")
 	assertEqual(t, rows[1].Project, "front")
-	assertEqual(t, rows[1].VMState, "Running")
+	assertEqual(t, rows[1].TargetState, "Running")
 }
 
 func TestBuildStatusRowsShowsRemoteRuntimeUnsupported(t *testing.T) {
@@ -622,8 +624,8 @@ func TestBuildStatusRowsShowsRemoteRuntimeUnsupported(t *testing.T) {
 	}
 	assertEqual(t, rows[0].Project, "remote")
 	assertEqual(t, rows[0].Runtime, "remote-server")
-	assertEqual(t, rows[0].VM, "")
-	assertEqual(t, rows[0].VMState, "unsupported")
+	assertEqual(t, rows[0].Target, "remote-server")
+	assertEqual(t, rows[0].TargetState, "unsupported")
 	assertEqual(t, rows[0].VMMode, "")
 }
 
@@ -644,7 +646,159 @@ func TestBuildStatusRowsChecksRemoteRuntimeReachability(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildStatusRows returned error: %v", err)
 	}
-	assertEqual(t, rows[0].VMState, "reachable")
+	assertEqual(t, rows[0].TargetState, "reachable")
+}
+
+func TestStatusNeedsLocalVMInstances(t *testing.T) {
+	t.Parallel()
+
+	reg, err := registry.New().Add("remote", registry.Project{
+		Path:    "/tmp/remote",
+		Runtime: registry.RuntimeTarget{Type: registry.RuntimeTypeRemote},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg, err = reg.Add("local", registry.Project{Path: "/tmp/local"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertEqual(t, statusNeedsLocalVMInstances(reg, ""), true)
+	assertEqual(t, statusNeedsLocalVMInstances(reg, "local"), true)
+	assertEqual(t, statusNeedsLocalVMInstances(reg, "remote"), false)
+	assertEqual(t, statusNeedsLocalVMInstances(reg, "missing"), false)
+}
+
+func TestRemoteReachabilityStateReportsRunnerFailure(t *testing.T) {
+	t.Parallel()
+
+	state := remoteReachabilityStateWithRunner(registry.Project{
+		Runtime: registry.RuntimeTarget{Type: registry.RuntimeTypeRemote},
+		Remote: registry.RemoteServer{
+			Host: "127.0.0.1",
+			User: "ubuntu",
+		},
+	}, failingRuntimeRunner{})
+
+	assertEqual(t, state, "unreachable")
+}
+
+func TestRunRemoteSetupReportsUnreachable(t *testing.T) {
+	t.Parallel()
+
+	err := runRemoteSetup(registry.Project{
+		Runtime: registry.RuntimeTarget{Type: registry.RuntimeTypeRemote},
+		Remote: registry.RemoteServer{
+			Host:    "dev.example.com",
+			User:    "ubuntu",
+			Workdir: "/srv/api",
+		},
+	}, failingRuntimeRunner{}, &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("expected remote setup to fail")
+	}
+	if !strings.Contains(err.Error(), "remote target unreachable: ubuntu@dev.example.com") {
+		t.Fatalf("expected unreachable error, got %v", err)
+	}
+}
+
+func TestRunRemoteSetupReportsReachable(t *testing.T) {
+	t.Parallel()
+
+	var output bytes.Buffer
+	err := runRemoteSetup(registry.Project{
+		Runtime: registry.RuntimeTarget{Type: registry.RuntimeTypeRemote},
+		Remote: registry.RemoteServer{
+			Host:    "dev.example.com",
+			User:    "ubuntu",
+			Workdir: "/srv/api",
+		},
+	}, successfulRuntimeRunner{}, &output)
+	if err != nil {
+		t.Fatalf("runRemoteSetup returned error: %v", err)
+	}
+	if !strings.Contains(output.String(), "Remote target reachable: ubuntu@dev.example.com") {
+		t.Fatalf("expected reachable output, got %q", output.String())
+	}
+	if !strings.Contains(output.String(), "Remote workdir ready: /srv/api") {
+		t.Fatalf("expected workdir output, got %q", output.String())
+	}
+}
+
+func TestRunRemoteSetupChecksWorkdir(t *testing.T) {
+	t.Parallel()
+
+	runner := &recordingRuntimeRunner{}
+	err := runRemoteSetup(registry.Project{
+		Runtime: registry.RuntimeTarget{Type: registry.RuntimeTypeRemote},
+		Remote: registry.RemoteServer{
+			Host:    "dev.example.com",
+			User:    "ubuntu",
+			Workdir: "/srv/api's",
+		},
+	}, runner, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("runRemoteSetup returned error: %v", err)
+	}
+	if len(runner.runs) != 2 {
+		t.Fatalf("expected reachability and workdir checks, got %#v", runner.runs)
+	}
+	last := runner.runs[1]
+	if got, want := last[len(last)-3:], []string{"sh", "-lc", "test -d '/srv/api'\"'\"'s'"}; !slicesEqual(got, want) {
+		t.Fatalf("expected workdir check suffix %#v, got %#v", want, got)
+	}
+}
+
+func TestRunRemoteSetupChecksHostKeyOnce(t *testing.T) {
+	t.Parallel()
+
+	runner := &recordingRuntimeRunner{
+		outputs: map[string][]byte{
+			"ssh-keyscan -p 22 -T 5 dev.example.com": []byte("dev.example.com ssh-ed25519 YWJj\n"),
+		},
+	}
+	err := runRemoteSetup(registry.Project{
+		Runtime: registry.RuntimeTarget{Type: registry.RuntimeTypeRemote},
+		Remote: registry.RemoteServer{
+			Host:               "dev.example.com",
+			User:               "ubuntu",
+			Workdir:            "/srv/api",
+			HostKeyFingerprint: "SHA256:ungWv48Bz+pBQUDeXa4iI7ADYaOWF3qctBD/YfIAFa0",
+		},
+	}, runner, &bytes.Buffer{})
+	if err != nil {
+		t.Fatalf("runRemoteSetup returned error: %v", err)
+	}
+	if len(runner.outputCalls) != 1 {
+		t.Fatalf("expected one host key scan, got %#v", runner.outputCalls)
+	}
+	if len(runner.runs) != 2 {
+		t.Fatalf("expected reachability and workdir SSH checks, got %#v", runner.runs)
+	}
+}
+
+func TestRunRemoteSetupReportsMissingWorkdir(t *testing.T) {
+	t.Parallel()
+
+	runner := &recordingRuntimeRunner{}
+	err := runRemoteSetup(registry.Project{
+		Runtime: registry.RuntimeTarget{Type: registry.RuntimeTypeRemote},
+		Remote: registry.RemoteServer{
+			Host:               "dev.example.com",
+			User:               "ubuntu",
+			HostKeyFingerprint: "SHA256:host123",
+		},
+	}, runner, &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("expected missing workdir to fail")
+	}
+	if !strings.Contains(err.Error(), "remote.workdir is required") {
+		t.Fatalf("expected remote.workdir error, got %v", err)
+	}
+	if len(runner.outputCalls) != 0 || len(runner.runs) != 0 {
+		t.Fatalf("expected no remote calls, got output=%#v runs=%#v", runner.outputCalls, runner.runs)
+	}
 }
 
 func TestBuildStatusRowsFiltersProject(t *testing.T) {
@@ -674,21 +828,21 @@ func TestWriteStatusRows(t *testing.T) {
 
 	var output bytes.Buffer
 	err := writeStatusRows(&output, []statusRow{{
-		Current: true,
-		Project: "api",
-		Runtime: "local-vm",
-		VM:      "api-vm",
-		VMState: "Running",
-		VMMode:  "dedicated",
-		Config:  "/tmp/api/.devctl.yml",
-		Path:    "/tmp/api",
+		Current:     true,
+		Project:     "api",
+		Runtime:     "local-vm",
+		Target:      "api-vm",
+		TargetState: "Running",
+		VMMode:      "dedicated",
+		Config:      "/tmp/api/.devctl.yml",
+		Path:        "/tmp/api",
 	}})
 	if err != nil {
 		t.Fatalf("writeStatusRows returned error: %v", err)
 	}
 
 	got := output.String()
-	for _, expected := range []string{"CURRENT", "PROJECT", "RUNTIME", "VM_STATE", "*", "api", "local-vm", "api-vm", "Running"} {
+	for _, expected := range []string{"CURRENT", "PROJECT", "RUNTIME", "TARGET_STATE", "*", "api", "local-vm", "api-vm", "Running"} {
 		if !strings.Contains(got, expected) {
 			t.Fatalf("expected output to contain %q:\n%s", expected, got)
 		}
@@ -720,12 +874,94 @@ func TestWriteProcessRows(t *testing.T) {
 	}
 }
 
+func TestStartProjectServicesExecutesServicesOnTarget(t *testing.T) {
+	t.Parallel()
+
+	target := &recordingTarget{}
+	err := startProjectServices(target, "api", config.ProjectConfig{
+		RepoDir: "/srv/api",
+		Services: []config.ServiceConfig{{
+			Name:    "web",
+			Command: "pnpm dev",
+			Workdir: ".",
+			Port:    3000,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("startProjectServices returned error: %v", err)
+	}
+	if len(target.commands) != 1 {
+		t.Fatalf("expected one command, got %#v", target.commands)
+	}
+	assertEqual(t, target.commands[0][0], "sh")
+	assertEqual(t, target.commands[0][1], "-lc")
+	for _, expected := range []string{"/srv/api", "pnpm dev", ".yard/processes/api/web"} {
+		if !strings.Contains(target.commands[0][2], expected) {
+			t.Fatalf("expected start script to contain %q:\n%s", expected, target.commands[0][2])
+		}
+	}
+}
+
+func TestStopProjectServicesStopsServicesInReverseOrder(t *testing.T) {
+	t.Parallel()
+
+	target := &recordingTarget{}
+	err := stopProjectServices(target, "api", config.ProjectConfig{
+		Services: []config.ServiceConfig{
+			{Name: "web"},
+			{Name: "worker"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("stopProjectServices returned error: %v", err)
+	}
+	if len(target.commands) != 2 {
+		t.Fatalf("expected two commands, got %#v", target.commands)
+	}
+	if !strings.Contains(target.commands[0][2], ".yard/processes/api/worker") {
+		t.Fatalf("expected worker to stop first:\n%s", target.commands[0][2])
+	}
+	if !strings.Contains(target.commands[1][2], ".yard/processes/api/web") {
+		t.Fatalf("expected web to stop second:\n%s", target.commands[1][2])
+	}
+}
+
 func TestShouldStopProjectVM(t *testing.T) {
 	t.Parallel()
 
 	assertEqual(t, shouldStopProjectVM(registry.Project{VM: registry.VM{Mode: "dedicated"}}, false), true)
 	assertEqual(t, shouldStopProjectVM(registry.Project{VM: registry.VM{Mode: "shared"}}, false), false)
 	assertEqual(t, shouldStopProjectVM(registry.Project{VM: registry.VM{Mode: "shared"}}, true), true)
+}
+
+func TestRunStopRejectsRemoteVMFlagBeforeConfigLoad(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	registryPath := filepath.Join(dir, "config.yaml")
+	reg, err := registry.New().Add("remote", registry.Project{
+		Path:    dir,
+		Config:  filepath.Join(dir, "missing.devctl.yml"),
+		Runtime: registry.RuntimeTarget{Type: registry.RuntimeTypeRemote},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Save(registryPath, reg); err != nil {
+		t.Fatal(err)
+	}
+
+	err = runStop(args{
+		positionals:  []string{"remote"},
+		registryPath: registryPath,
+		stopVM:       true,
+	})
+	if err == nil {
+		t.Fatal("expected remote --vm stop to fail")
+	}
+	if !strings.Contains(err.Error(), "--vm requires a local-vm runtime target") {
+		t.Fatalf("expected remote --vm error, got %v", err)
+	}
 }
 
 func TestParseRejectsMissingFlagValue(t *testing.T) {
@@ -761,4 +997,69 @@ ports:
 	if err := os.WriteFile(path, content, 0o600); err != nil {
 		t.Fatal(err)
 	}
+}
+
+type failingRuntimeRunner struct{}
+
+func (failingRuntimeRunner) Output(string, ...string) ([]byte, error) {
+	return nil, errors.New("runner failed")
+}
+
+func (failingRuntimeRunner) Run(string, ...string) error {
+	return errors.New("runner failed")
+}
+
+type successfulRuntimeRunner struct{}
+
+func (successfulRuntimeRunner) Output(string, ...string) ([]byte, error) {
+	return nil, nil
+}
+
+func (successfulRuntimeRunner) Run(string, ...string) error {
+	return nil
+}
+
+type recordingRuntimeRunner struct {
+	outputs     map[string][]byte
+	outputCalls [][]string
+	runs        [][]string
+}
+
+func (runner *recordingRuntimeRunner) Output(command string, args ...string) ([]byte, error) {
+	call := append([]string{command}, args...)
+	runner.outputCalls = append(runner.outputCalls, call)
+	if output, ok := runner.outputs[strings.Join(call, " ")]; ok {
+		return output, nil
+	}
+	return nil, nil
+}
+
+func (runner *recordingRuntimeRunner) Run(command string, args ...string) error {
+	runner.runs = append(runner.runs, append([]string{command}, args...))
+	return nil
+}
+
+type recordingTarget struct {
+	commands [][]string
+}
+
+func (target *recordingTarget) Exec(command []string) error {
+	target.commands = append(target.commands, append([]string(nil), command...))
+	return nil
+}
+
+func (target *recordingTarget) ExecOutput([]string) ([]byte, error) {
+	return nil, nil
+}
+
+func slicesEqual(left []string, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
 }
