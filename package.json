@@ -1,9 +1,0 @@
-{
-  "name": "yard",
-  "version": "0.1.0",
-  "private": true,
-  "packageManager": "pnpm@10.32.1",
-  "scripts": {
-    "check": "go run ./cmd/yard --help && go run ./cmd/yard config --project examples/web-app.yard.yml && go test ./..."
-  }
-}

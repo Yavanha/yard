@@ -53,7 +53,7 @@ Loads a project config without using the registry. This validates `.yard.yml` pa
 From this repo, also run:
 
 ```bash
-pnpm run check
+./scripts/check.sh
 ```
 
 Runs the full repository check: Yard help, the example config, and all Go tests.

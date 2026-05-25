@@ -145,7 +145,7 @@ Les secrets reels ne doivent jamais etre stockes dans le repo, `.yard.yml`, le r
 Avant commit:
 
 ```bash
-pnpm run check
+./scripts/check.sh
 ```
 
 Le check valide l'aide Yard, l'exemple de config et tous les tests Go.

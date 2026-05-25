@@ -10,7 +10,7 @@
 
 - Branches: `feat/<topic>`, `fix/<topic>`, `docs/<topic>`, `chore/<topic>`.
 - Commits: Conventional Commits.
-- Avant commit: executer `pnpm run check`.
+- Avant commit: executer `./scripts/check.sh`.
 
 ## Scope
 

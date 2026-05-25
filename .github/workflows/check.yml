@@ -18,15 +18,5 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          run_install: false
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
       - name: Check
-        run: pnpm run check
+        run: ./scripts/check.sh
