@@ -1,128 +1,128 @@
 # Yard
 
-Yard pilote des environnements de developpement isoles depuis la machine hote, sans stocker de secrets reels dans les repos ou les VMs.
+Yard operates isolated development environments from the host machine, without storing real secrets in repositories or VMs.
 
 ## Language
 
 **Host Controller**:
-Le processus `yard` execute sur la machine hote, responsable de l'orchestration et de l'acces aux credentials locaux.
-_Avoid_: agent remote, CLI VM
+The `yard` process running on the host machine. It owns orchestration and access to local credentials.
+_Avoid_: remote agent, VM CLI
 
 **Project**:
-Un repo applicatif enregistre et pilotable par Yard.
+An application repository registered and controlled by Yard.
 _Avoid_: app, workspace
 
 **Project Registry**:
-La configuration globale hote qui associe un nom de projet a son repo local et a ses choix de runtime locaux.
-_Avoid_: `.yard.yml` pour les preferences propres a une machine
+The host-local configuration that maps a project name to its local repository and local runtime choices.
+_Avoid_: `.yard.yml` for machine-local preferences
 
 **Project Config**:
-Le fichier versionne `.yard.yml` qui declare les metadonnees et services vendor-neutral d'un **Project**.
+The versioned `.yard.yml` file that declares vendor-neutral metadata and services for a **Project**.
 _Avoid_: Project Registry
 
 **Dev VM**:
-Une VM de developpement isolee qui execute les outils runtime sans credentials persistants.
+An isolated development VM that runs runtime tools without persistent credentials.
 _Avoid_: host, devcontainer
 
 **Remote Server**:
-Un serveur de developpement reel, accessible a distance, que Yard pourra piloter comme cible runtime au lieu d'une **Dev VM** locale.
-_Avoid_: repository source, fournisseur Git
+A real development server reachable over SSH that Yard can control as a runtime target instead of a local **Dev VM**.
+_Avoid_: repository source, Git provider
 
 **Runtime Target**:
-La cible d'execution d'un **Environment**. Aujourd'hui une **Dev VM**; plus tard possiblement un **Remote Server** via SSH.
-_Avoid_: supposer VM partout
+The execution target of an **Environment**. Today this can be a local **Dev VM** or a **Remote Server** over SSH.
+_Avoid_: assuming VM everywhere
 
 **Environment**:
-L'ensemble actif forme par un ou plusieurs **Projects**, un **Runtime Target** et les services/processus necessaires au developpement.
-_Avoid_: stack quand on parle aussi de VM et processus app
+The active set formed by one or more **Projects**, a **Runtime Target**, and the services/processes needed for development.
+_Avoid_: stack when also referring to VMs and app processes
 
 **Start**:
-Une action idempotente et non destructive qui amene un **Environment** configure a l'etat actif.
+An idempotent, non-destructive action that brings a configured **Environment** to an active state.
 _Avoid_: reset, rebuild, restart
 
 **Process**:
-Un service de developpement lance pour un **Project**, supervise dans la **Dev VM** et observable depuis le **Host Controller**.
-_Avoid_: terminal bloque, commande ad hoc
+A development service launched for a **Project**, supervised in the runtime target, and observable from the **Host Controller**.
+_Avoid_: blocked terminal, ad hoc command
 
 **Service**:
-Une declaration vendor-neutral dans la config projet qui decrit une commande de dev a superviser comme **Process**.
-_Avoid_: adapter framework, container obligatoire
+A vendor-neutral declaration in project config describing a development command to supervise as a **Process**.
+_Avoid_: framework adapter, required container
 
 **Repository Source**:
-Un fournisseur host-side qui permet de decouvrir et recuperer des repos accessibles, par exemple GitHub via `gh`.
-_Avoid_: credentials GitHub dans la VM
+A host-side provider that discovers and fetches accessible repositories, for example GitHub through `gh`.
+_Avoid_: GitHub credentials in the VM
 
 **Adapter**:
-Une integration optionnelle activee par un **Project** pour un outil specifique comme Supabase, Infisical, Vite ou un backend particulier.
-_Avoid_: dependance coeur obligatoire
+An optional integration enabled by a **Project** for a specific tool such as Supabase, Infisical, Vite, or a backend framework.
+_Avoid_: mandatory core dependency
 
 ## Relationships
 
-- Un **Host Controller** pilote un ou plusieurs **Projects**.
-- Les textes visibles dans la CLI `yard` sont en anglais: aide, erreurs, prompts interactifs, confirmations et tables.
-- Un **Project** est declare dans un **Project Registry** local a la machine hote.
-- Un **Project** peut avoir un **Project Config** versionne dans `.yard.yml`.
-- `.yard.yml` est le seul **Project Config** supporte.
-- Le **Project Registry** vit par defaut dans `~/.config/yard/config.yaml`.
-- Un **Project** peut utiliser une **Dev VM** partagee ou dediee selon `vm.mode` dans le **Project Registry**.
-- Un **Project** devra proposer un choix explicite de **Runtime Target**: **Dev VM** locale ou **Remote Server**, pour les usages de travail a distance ou de machine de dev partagee.
-- Le choix **Dev VM** locale vs **Remote Server** est une preference host-local dans le **Project Registry**, pas une option versionnee dans `.yard.yml`.
-- Les metadonnees **Remote Server** non secretes vivent dans le **Project Registry** sous `remote`: host, user, port SSH, repertoire de travail distant, et chemin host-local optionnel vers une identite SSH.
-- Le coeur ne doit pas supposer que le **Runtime Target** est toujours une VM locale; les operations `start`, `stop`, `status`, `exec` et `process` doivent pouvoir passer par une interface cible.
-- Un **Remote Server** reste une cible d'execution, pas une source de repo: la decouverte Git et les credentials Git restent host-side via **Repository Source**.
-- Les secrets reels ne doivent pas etre stockes dans le **Project Registry**, dans `.yard.yml`, dans la **Dev VM** ou sur un **Remote Server** par Yard.
-- Un **Project Registry** peut stocker une identite Git host-side (`git.identity_file`, `git.fingerprint`) pour tester et cloner un repo sans l'inscrire dans `.yard.yml`.
-- Un **Environment** peut etre mono-project maintenant et multi-project plus tard pour composer front, backend, workers ou services dans des repos differents.
-- **Start** reutilise les ressources deja demarrees au lieu de dupliquer ou detruire des processus.
-- Un **Process** expose au minimum un etat, un PID ou identifiant equivalent, des ports et des logs consultables depuis le **Host Controller**.
-- Un **Service** peut representer un front, un backend, un worker ou tout autre serveur de dev dans le meme repo; si le backend vit dans un autre repo, il devient un autre **Project**.
-- Un **Repository Source** tourne cote host et reutilise les credentials host existants.
-- Le coeur de Yard reste vendor-neutral; les outils specifiques front/backend/secrets/services passent par des **Adapters**.
-- Les commandes `yard vm ...` pilotent une **Dev VM** existante; la creation/provision restent des actions de setup separees.
-- `yard status` affiche une vue tableau dense des **Projects** et de l'etat des **Dev VMs**, style `docker ps`.
-- `yard setup` cree la **Dev VM** manquante de maniere idempotente; le provisionnement logiciel restera une etape separee.
-- `yard start` orchestre la **Dev VM** et les **Services** configures sans doubler les **Processes** deja actifs.
-- `yard stop` arrete les **Services**; une **Dev VM** partagee reste active sauf demande explicite avec `--vm`.
-- `yard init` cree une config projet vendor-neutral avec **Services**, sans secrets ni adapters obligatoires; l'ecrasement requiert `--force`.
-- `yard project import` sans arguments lance un wizard SSH: selection de cle existante ou creation host-side via `ssh-keygen`, avec upload optionnel par `gh`; les chemins `yes` et `not sure` testent la cle choisie et proposent une creation si elle echoue.
-- `yard project import` teste l'acces au repo avec une identite SSH host-side, clone dans un dossier vide ou manquant, puis enregistre le **Project** dans le **Project Registry**.
-- `yard project inspect` affiche les chemins locaux, la **Dev VM** cible et l'identite Git host-side enregistree pour un **Project**.
-- `yard project remove` supprime uniquement l'entree du **Project Registry**; il ne supprime pas le repo local ni la **Dev VM**.
-- `yard ssh host-key <host>` affiche les fingerprints publics d'un **Remote Server** pour renseigner `remote.host_key_fingerprint`.
-- `yard project add/import --runtime remote-server` exige les metadonnees SSH non secretes via prompts ou flags `--remote-*`.
-- `yard exec <remote-project> -- <command>`, `yard process ...`, `yard start` et `yard stop` utilisent SSH directement pour `remote-server`. `remote.workdir` remplace `repo_dir` pour les scripts de process distants.
-- `yard setup <remote-project>` verifie la reachability SSH et l'existence de `remote.workdir`; aucun bootstrap destructif, creation de repertoire ou installation d'outils n'est fait.
-- Les commandes interactives doivent toujours conserver un mode non interactif equivalent via arguments ou fichiers.
+- A **Host Controller** controls one or more **Projects**.
+- User-visible text in the `yard` CLI is English: help, errors, interactive prompts, confirmations, and tables.
+- A **Project** is declared in a host-local **Project Registry**.
+- A **Project** can have a versioned **Project Config** in `.yard.yml`.
+- `.yard.yml` is the only supported **Project Config** filename.
+- The **Project Registry** lives at `~/.config/yard/config.yaml` by default.
+- A **Project** can use a shared or dedicated **Dev VM** through `vm.mode` in the **Project Registry**.
+- A **Project** has an explicit **Runtime Target** choice: local **Dev VM** or **Remote Server**.
+- The local VM vs remote server choice is host-local registry state, not a versioned `.yard.yml` option.
+- Non-secret **Remote Server** metadata lives in the **Project Registry** under `remote`: host, user, SSH port, remote workdir, optional host-local identity path, and host key fingerprint.
+- Core code must not assume that the **Runtime Target** is always a local VM; `start`, `stop`, `status`, `exec`, and `process` must go through a target interface.
+- A **Remote Server** is an execution target, not a repository source. Git discovery and Git credentials stay host-side through **Repository Source** integrations.
+- Real secrets must not be stored by Yard in the **Project Registry**, `.yard.yml`, a **Dev VM**, or a **Remote Server**.
+- A **Project Registry** can store host-side Git identity metadata (`git.identity_file`, `git.fingerprint`) to test and clone a repository without writing that state to `.yard.yml`.
+- An **Environment** can be single-project today and multi-project later for frontends, backends, workers, or services split across repositories.
+- **Start** reuses already running resources instead of duplicating or destroying processes.
+- A **Process** exposes at least state, a PID or equivalent identifier, ports, and logs readable from the **Host Controller**.
+- A **Service** can represent a frontend, backend, worker, or any other development server in the same repository. If the backend lives in another repository, it becomes another **Project**.
+- A **Repository Source** runs on the host and reuses existing host credentials.
+- Yard core stays vendor-neutral. Frontend, backend, secrets, and service-specific tools belong in **Adapters**.
+- `yard vm ...` commands operate an existing **Dev VM**. Creation and provisioning remain separate setup actions.
+- `yard status` shows a dense table of **Projects** and **Dev VM** state, similar to `docker ps`.
+- `yard setup` creates a missing **Dev VM** idempotently. Software provisioning remains a separate step.
+- `yard start` orchestrates the **Dev VM** and configured **Services** without duplicating active **Processes**.
+- `yard stop` stops **Services**. A shared **Dev VM** stays active unless `--vm` is passed.
+- `yard init` creates a vendor-neutral project config with **Services**, without secrets or mandatory adapters. Overwriting requires `--force`.
+- `yard project import` without arguments starts an SSH wizard: select an existing key or create a host-side key with `ssh-keygen`, with optional upload through `gh`.
+- `yard project import` tests repository access with a host-side SSH identity, clones into a missing or empty directory, then registers the **Project** in the **Project Registry**.
+- `yard project inspect` shows local paths, the target **Dev VM**, and host-side Git identity metadata for a **Project**.
+- `yard project remove` only removes the **Project Registry** entry. It does not delete the local repository or the **Dev VM**.
+- `yard ssh host-key <host>` prints public fingerprints for a **Remote Server** so they can be stored as `remote.host_key_fingerprint`.
+- `yard project add/import --runtime remote-server` requires non-secret SSH metadata through prompts or `--remote-*` flags.
+- `yard exec <remote-project> -- <command>`, `yard process ...`, `yard start`, and `yard stop` use SSH directly for `remote-server`. `remote.workdir` replaces `repo_dir` in remote process scripts.
+- `yard setup <remote-project>` checks SSH reachability and the existence of `remote.workdir`; it does not perform destructive bootstrap, directory creation, or tool installation.
+- Interactive commands must always keep an equivalent non-interactive mode through arguments or files.
 
-## Example dialogue
+## Example Dialogue
 
-> **Dev:** "Est-ce qu'un projet doit toujours avoir sa VM dediee ?"
-> **Domain expert:** "Non. C'est un choix local dans le **Project Registry** via `vm.mode`; le repo de projet ne doit pas imposer ca a toutes les machines."
+> **Developer:** "Does a project always need its own VM?"
+> **Domain expert:** "No. That is a local choice in the **Project Registry** through `vm.mode`; the project repository must not impose it on every machine."
 >
-> **Dev:** "Quand `start` lance le serveur app, est-ce que mon terminal reste bloque ?"
-> **Domain expert:** "Non. Le **Process** est supervise dans la **Dev VM**, et le **Host Controller** permet de voir son etat et ses logs."
+> **Developer:** "When `start` launches the app server, does my terminal stay blocked?"
+> **Domain expert:** "No. The **Process** is supervised in the runtime target, and the **Host Controller** can read its state and logs."
 >
-> **Dev:** "Si le backend est dans un autre repo, est-ce encore le meme projet ?"
-> **Domain expert:** "Non. Chaque repo reste un **Project**; plus tard un **Environment** pourra composer plusieurs **Projects**."
+> **Developer:** "If the backend is in another repository, is it still the same project?"
+> **Domain expert:** "No. Each repository remains a **Project**. Later, an **Environment** can compose multiple **Projects**."
 >
-> **Dev:** "Pour recuperer un repo d'une organisation GitHub, est-ce que la VM doit avoir mes credentials GitHub ?"
-> **Domain expert:** "Non. GitHub est une **Repository Source** cote host, probablement via `gh`, puis Yard clone/synchronise sans persister de credentials dans la **Dev VM**."
+> **Developer:** "To fetch a repository from a GitHub organization, does the VM need my GitHub credentials?"
+> **Domain expert:** "No. GitHub is a host-side **Repository Source**, probably through `gh`; Yard then clones or syncs without persisting credentials in the **Dev VM**."
 
-## Flagged ambiguities
+## Flagged Ambiguities
 
-- "dedicated" signifie maintenant `vm.mode: dedicated` dans le **Project Registry**, pas une option versionnee dans `.yard.yml`.
-- "local VM ou serveur distant" signifie un choix de **Runtime Target** dans le **Project Registry**; `vm.mode` reste le detail du choix **Dev VM**.
-- Les noms comme `lmdlp` sont des cas projet historiques; les exemples utilisateur doivent utiliser des noms generiques comme `web-app`, `api` ou `worker`.
-- `start` signifie demarrage idempotent et non destructif; les actions destructives appartiennent a `reset` ou a des commandes explicitement confirmees.
-- "process ouvert" signifie un **Process** observable et controle par `yard status/logs`, pas un terminal interactif laisse ouvert.
-- "backend" n'est pas un type special de **Project**; c'est souvent un **Process** dans le meme repo, ou un autre **Project** compose plus tard dans un **Environment** multi-project.
-- `services` decrit des commandes generiques; les choix NestJS, PHP, Vite, Supabase ou autres restent dans la commande/adapters, pas dans le coeur.
-- "GitHub org" est une capacite de **Repository Source**, pas une hypothese hardcodee dans le coeur de Yard.
-- L'identite SSH choisie pour un import est un choix host-side; elle ne doit pas etre copiee dans la **Dev VM** ni dans `.yard.yml`.
-- "serveur distant" signifie **Remote Server** comme **Runtime Target**, pas remplacement du **Host Controller** ni stockage de secrets sur le serveur.
-- Supabase, Infisical et Vite sont des **Adapters** optionnels, pas des preconditions pour tous les **Projects**.
+- "dedicated" means `vm.mode: dedicated` in the **Project Registry**, not a versioned `.yard.yml` option.
+- "local VM or remote server" means a **Runtime Target** choice in the **Project Registry**; `vm.mode` remains a detail of the local **Dev VM** choice.
+- Historical project names should not appear in user-facing examples; use generic names like `web-app`, `api`, or `worker`.
+- `start` means idempotent and non-destructive startup. Destructive actions belong to `reset` or explicitly confirmed commands.
+- "open process" means a **Process** observable and controlled through `yard status` and logs, not a leftover interactive terminal.
+- "backend" is not a special **Project** type. It is often a **Process** in the same repository, or another **Project** composed later in a multi-project **Environment**.
+- `services` describes generic commands. NestJS, PHP, Vite, Supabase, or other choices belong in the command or adapters, not in core.
+- "GitHub org" is a **Repository Source** capability, not a hardcoded Yard core assumption.
+- The SSH identity selected during import is host-side state. It must not be copied into the **Dev VM** or `.yard.yml`.
+- "remote server" means **Remote Server** as a **Runtime Target**, not a replacement for the **Host Controller** or a place to store secrets.
+- Supabase, Infisical, and Vite are optional **Adapters**, not prerequisites for all **Projects**.
 
-## Registry shape
+## Registry Shape
 
 ```yaml
 current_project: example
@@ -151,4 +151,4 @@ projects:
       host_key_fingerprint: SHA256:...
 ```
 
-`config` est optionnel et vaut `<path>/.yard.yml` par defaut. `git` est optionnel et reste local a la machine hote. `runtime.type` vaut `local-vm` par defaut et peut etre `remote-server` pour une cible SSH. `remote` est optionnel, host-local, et ne stocke que des metadonnees non secretes; `remote.identity_file` est un chemin vers une cle privee hote, jamais le contenu de la cle, et `remote.host_key_fingerprint` est une empreinte de cle hote non secrete verifiee avant connexion quand elle est fournie. `vm.mode` vaut `shared` par defaut, et `vm.name` vaut `yard-shared` quand le mode est partage.
+`config` is optional and defaults to `<path>/.yard.yml`. `git` is optional and remains local to the host machine. `runtime.type` defaults to `local-vm` and can be `remote-server` for an SSH target. `remote` is optional, host-local, and stores only non-secret metadata. `remote.identity_file` is a path to a host private key, never the key content. `remote.host_key_fingerprint` is a non-secret host key fingerprint checked before connection when provided. `vm.mode` defaults to `shared`, and `vm.name` defaults to `yard-shared` in shared mode.

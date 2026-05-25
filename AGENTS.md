@@ -2,25 +2,25 @@
 
 ## Communication
 
-- Reponses courtes, techniques, en francais.
-- Les textes visibles par les utilisateurs de la CLI (`help`, erreurs, prompts, tables, confirmations) doivent etre en anglais.
-- Ne jamais stocker de secret reel dans le repo.
+- Keep responses short and technical.
+- User-visible CLI text (`help`, errors, prompts, tables, confirmations) must be in English.
+- Never store real secrets in the repository.
 
 ## Git
 
 - Branches: `feat/<topic>`, `fix/<topic>`, `docs/<topic>`, `chore/<topic>`.
 - Commits: Conventional Commits.
-- Avant commit: executer `./scripts/check.sh`.
+- Before committing: run `./scripts/check.sh`.
 
 ## Scope
 
-- `yard` est une CLI generique pour provisionner et piloter des environnements dev isoles.
-- La configuration projet canonique vit dans `.yard.yml` dans le repo cible.
-- Les secrets reels viennent d'un fournisseur externe au runtime, jamais d'un fichier versionne.
+- `yard` is a generic CLI for provisioning and operating isolated development environments.
+- The canonical project config lives in `.yard.yml` in the target repository.
+- Real secrets come from an external runtime provider, never from a versioned file.
 
 ## Documentation
 
-- La documentation utilisateur CLI vit dans `docs/cli/`.
-- Mettre a jour les stories de la Command Gallery quand le comportement CLI change.
-- Utiliser `yard` et `.yard.yml` dans la documentation utilisateur.
-- Marquer les features non finalisees comme `Experimental` ou `Planned`.
+- User-facing CLI documentation lives in `docs/cli/`.
+- Update Command Gallery stories when CLI behavior changes.
+- Use `yard` and `.yard.yml` in user-facing documentation.
+- Mark unfinished features as `Experimental` or `Planned`.
