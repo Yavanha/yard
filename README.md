@@ -1,51 +1,79 @@
 # Yard
 
-Yard est une CLI pour provisionner et piloter des environnements de developpement isoles depuis la machine hote.
+Yard is a Go CLI for provisioning and operating isolated development environments from the host machine.
 
-Les textes visibles par les utilisateurs dans la CLI restent en anglais: aide, erreurs, prompts, confirmations et tables.
+The product surface is `yard`. Project configuration is `.yard.yml`. No other project config filename is supported.
 
-## Etat
+CLI-visible text stays in English: help, errors, prompts, confirmations, and tables.
 
-Yard est la surface produit et CLI canonique.
+## Status
 
-Capacites actuelles:
-- registre projets cote hote;
-- runtime local VM via Lima;
-- runtime remote server via SSH;
-- scaffold de config projet;
-- import projet avec identite SSH cote hote;
-- setup, status et exec sur la cible runtime;
-- start, stop et logs des services de dev;
-- inspection des fingerprints de host key remote.
+Current capabilities:
 
-Le support remote server est implemente mais doit encore passer un smoke end-to-end sur un vrai serveur SSH avant d'etre considere completement valide.
+- host-side project registry;
+- local development VM runtime through Lima;
+- remote server runtime through SSH;
+- `.yard.yml` project config scaffolding;
+- host-side project import with SSH identity metadata;
+- runtime `setup`, `status`, and `exec`;
+- service `start`, `stop`, `logs`, and `process list`;
+- Lima VM `list`, `status`, `start`, `stop`, `delete`, and `exec`;
+- remote SSH host key fingerprint inspection;
+- embedded CLI scenario guides through `yard guide`.
 
-## Depuis Les Sources
+Remote server support is implemented and has a local OrbStack smoke path. Treat it as `Experimental` until it is exercised against more real SSH hosts.
 
-Pendant le developpement, Yard se lance depuis ce repo:
+## Requirements
+
+Development requirements:
+
+- Go, version declared in [go.mod](go.mod)
+- Lima, for local VM runtime tests and usage
+- SSH client tools
+
+Optional tools:
+
+- OrbStack, to simulate a remote SSH server for smoke testing
+- GitHub CLI, only for publishing or repository automation
+
+Node and pnpm are not required by Yard itself.
+
+## Run From Source
 
 ```bash
 go run ./cmd/yard --help
 ```
 
-Dans la documentation utilisateur, les commandes sont ecrites `yard ...`. Depuis les sources, remplacer `yard` par `go run ./cmd/yard`.
+The user documentation writes commands as `yard ...`. When running from this repository, replace `yard` with:
 
-## Quick Start
+```bash
+go run ./cmd/yard
+```
 
-Creer une config projet:
+Run the project check:
+
+```bash
+./scripts/check.sh
+```
+
+The check validates Yard help, the example project config, and all Go tests. GitHub Actions runs the same script in [.github/workflows/check.yml](.github/workflows/check.yml).
+
+## Quick Start: Local VM
+
+Create a project config:
 
 ```bash
 yard init web-app --yes --config .yard.yml
 ```
 
-Enregistrer un projet local VM:
+Register the project with the local VM runtime:
 
 ```bash
 yard project add web-app /path/to/web-app --runtime local-vm
 yard use web-app
 ```
 
-Configurer et demarrer le projet:
+Create or verify the runtime target, then start services:
 
 ```bash
 yard setup web-app
@@ -54,21 +82,27 @@ yard status web-app
 yard process logs web-app web --tail 80
 ```
 
-Arreter les services du projet:
+Stop services:
 
 ```bash
 yard stop web-app
 ```
 
-## Remote Server Quick Start
+Delete a stopped Lima VM when it is no longer needed:
 
-Recuperer le fingerprint de host key remote:
+```bash
+yard vm delete yard-shared
+```
+
+## Quick Start: Remote Server
+
+Get the remote SSH host key fingerprint:
 
 ```bash
 yard ssh host-key dev.example.com --port 22
 ```
 
-Enregistrer un projet remote:
+Register a remote runtime target:
 
 ```bash
 yard project add api /path/to/api \
@@ -79,7 +113,7 @@ yard project add api /path/to/api \
   --remote-host-key SHA256:...
 ```
 
-Verifier et utiliser la cible remote:
+Verify and use the remote target:
 
 ```bash
 yard setup api
@@ -89,11 +123,13 @@ yard start api
 yard stop api
 ```
 
+`yard stop` stops Yard-managed services on a remote target. It does not stop or delete the remote machine itself.
+
 ## Project Config
 
-Le fichier de config projet canonique est `.yard.yml`.
+The canonical project config file is `.yard.yml`.
 
-Exemple:
+Example:
 
 ```yaml
 org: acme
@@ -123,38 +159,57 @@ ports:
   preview: 4173
 ```
 
-Un exemple reutilisable vit dans `examples/web-app.yard.yml`.
+Reusable example: [examples/web-app.yard.yml](examples/web-app.yard.yml)
 
 ## Host Registry
 
-Yard stocke les choix locaux dans `~/.config/yard/config.yaml`.
+Yard stores host-local choices in:
 
-Le registre peut contenir:
-- projet courant;
-- chemin local du projet;
-- chemin de config;
-- runtime target: `local-vm` ou `remote-server`;
-- mode et nom de VM locale;
-- metadonnees SSH remote;
-- metadonnees d'identite Git cote hote.
+```text
+~/.config/yard/config.yaml
+```
 
-Les secrets reels ne doivent jamais etre stockes dans le repo, `.yard.yml`, le registre hote, une Dev VM ou un Remote Server par Yard. Les secrets runtime doivent venir d'un fournisseur externe.
+The registry can contain:
 
-## Developpement
+- current project;
+- local project path;
+- project config path;
+- runtime target: `local-vm` or `remote-server`;
+- local VM mode and name;
+- remote SSH metadata;
+- host-side Git identity metadata.
 
-Avant commit:
+Real secrets must never be stored in the repository, `.yard.yml`, the host registry, a Dev VM, or a Remote Server by Yard. Runtime secrets must come from an external provider.
+
+## Documentation
+
+Primary docs:
+
+- [CLI Command Gallery](docs/cli/README.md): scenario-oriented user docs.
+- [Full CLI smoke test](docs/cli/smoke-test.md): complete local VM, remote SSH, and cleanup path.
+- [Canonical Yard surface ADR](docs/adr/0001-yard-canonical-product-surface.md): product naming and config-surface decision.
+- [Domain context](CONTEXT.md): project language, boundaries, and registry shape.
+- [Agent instructions](AGENTS.md): contribution constraints for coding agents.
+
+The Command Gallery is also available from the CLI:
+
+```bash
+yard guide list
+yard guide smoke-test
+```
+
+## Development
+
+Before committing:
 
 ```bash
 ./scripts/check.sh
 ```
 
-Le check valide l'aide Yard, l'exemple de config et tous les tests Go.
+Branch and commit conventions are documented in [AGENTS.md](AGENTS.md).
 
-## Direction Documentation
+## Feature Status Labels
 
-La documentation utilisateur vit dans la CLI Command Gallery: [`docs/cli/`](docs/cli/), organisee par scenarios d'abord et reference commandes ensuite.
-
-Statuts de features:
-- `Available`: implemente et couvert par les checks automatises.
-- `Experimental`: implemente mais pas encore valide en conditions reelles.
-- `Planned`: pas encore implemente.
+- `Available`: implemented and covered by automated checks.
+- `Experimental`: implemented, but still useful to validate in real environments.
+- `Planned`: not implemented yet.
