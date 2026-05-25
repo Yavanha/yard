@@ -9,8 +9,8 @@ import (
 func TestParseSimpleYAML(t *testing.T) {
 	t.Parallel()
 
-	parsed, err := ParseSimpleYAML(`org: lmdlp
-project: lmdlp-client
+	parsed, err := ParseSimpleYAML(`org: acme
+project: web-app
 enabled: true
 resources:
   cpus: 4
@@ -21,7 +21,7 @@ resources:
 		t.Fatalf("ParseSimpleYAML returned error: %v", err)
 	}
 
-	assertEqual(t, parsed["org"], "lmdlp")
+	assertEqual(t, parsed["org"], "acme")
 	assertEqual(t, parsed["enabled"], true)
 
 	resources := parsed["resources"].(map[string]any)
@@ -82,6 +82,15 @@ func TestFindPathWalksUpward(t *testing.T) {
 	}
 	if found != configPath {
 		t.Fatalf("expected %q, got %q", configPath, found)
+	}
+}
+
+func TestLoadRejectsLegacyConfigPath(t *testing.T) {
+	t.Parallel()
+
+	_, err := Load(filepath.Join(t.TempDir(), legacyConfigFileName), t.TempDir())
+	if err == nil {
+		t.Fatal("expected legacy config path to fail")
 	}
 }
 

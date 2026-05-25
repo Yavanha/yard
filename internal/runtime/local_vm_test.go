@@ -28,7 +28,7 @@ func TestLocalVMExecDelegatesToLimaClient(t *testing.T) {
 	if runner.runs[0][0] != "ssh" {
 		t.Fatalf("expected ssh command, got %#v", runner.runs[0])
 	}
-	if got, want := runner.runs[0][len(runner.runs[0])-2:], []string{"printf", "ok"}; !reflect.DeepEqual(got, want) {
+	if got, want := runner.runs[0][len(runner.runs[0])-2:], []string{"--", "'printf' 'ok'"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("expected command suffix %#v, got %#v", want, got)
 	}
 }
@@ -39,7 +39,7 @@ func TestLocalVMExecOutputDelegatesToLimaClient(t *testing.T) {
 	runner := &fakeRunner{
 		outputs: map[string][]byte{
 			"limactl list --format json api-dev": []byte(`{"name":"api-dev","status":"Running","sshConfigFile":"/tmp/api-dev/ssh.config"}`),
-			"ssh -F /tmp/api-dev/ssh.config -o ForwardAgent=yes -o ControlMaster=no -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=30 lima-api-dev -- printf ok": []byte("ok"),
+			"ssh -F /tmp/api-dev/ssh.config -o ForwardAgent=yes -o ControlMaster=no -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=30 lima-api-dev -- 'printf' 'ok'": []byte("ok"),
 		},
 	}
 	target := NewLocalVM(lima.NewClient(runner), "api-dev")

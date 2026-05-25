@@ -1,13 +1,9 @@
 {
-  "name": "devctl",
+  "name": "yard",
   "version": "0.1.0",
   "private": true,
   "packageManager": "pnpm@10.32.1",
-  "type": "module",
-  "bin": {
-    "devctl": "bin/devctl.mjs"
-  },
   "scripts": {
-    "check": "node --check bin/devctl.mjs && node bin/devctl.mjs --help && node bin/devctl.mjs config --project examples/lmdlp.devctl.yml && node bin/devctl.mjs doctor && go test ./..."
+    "check": "go run ./cmd/yard --help && go run ./cmd/yard config --project examples/web-app.yard.yml && go test ./..."
   }
 }

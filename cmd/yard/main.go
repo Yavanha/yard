@@ -89,6 +89,8 @@ func run(argv []string) error {
 		return runVM(parsed)
 	case "ssh":
 		return runSSH(parsed)
+	case "guide":
+		return runGuide(parsed, os.Stdout)
 	case "exec":
 		return runExec(parsed)
 	case "process":
@@ -309,7 +311,7 @@ func parseArgs(argv []string) (args, error) {
 				return args{}, fmt.Errorf("unknown flag: %s", value)
 			}
 			if parsed.command != "" {
-				if parsed.subcommand == "" && (parsed.command == "project" || parsed.command == "vm" || parsed.command == "process" || parsed.command == "ssh") {
+				if parsed.subcommand == "" && (parsed.command == "project" || parsed.command == "vm" || parsed.command == "process" || parsed.command == "ssh" || parsed.command == "guide") {
 					parsed.subcommand = value
 					continue
 				}
@@ -387,9 +389,11 @@ func runVM(parsed args) error {
 		return runVMStop(parsed)
 	case "exec":
 		return runVMExec(parsed)
+	case "delete":
+		return runVMDelete(parsed)
 	default:
 		if parsed.subcommand == "" {
-			return errors.New("vm requires a subcommand: list, status, start, stop, or exec")
+			return errors.New("vm requires a subcommand: list, status, start, stop, exec, or delete")
 		}
 		return fmt.Errorf("unknown vm subcommand: %s", parsed.subcommand)
 	}
@@ -491,6 +495,35 @@ func runVMStop(parsed args) error {
 		return err
 	}
 	fmt.Printf("VM stopped: %s\n", vmName)
+	return nil
+}
+
+type vmDeleteClient interface {
+	Status(name string) (lima.Instance, error)
+	Delete(name string) error
+}
+
+func runVMDelete(parsed args) error {
+	return runVMDeleteWithClient(parsed, lima.NewClient(nil), os.Stdout)
+}
+
+func runVMDeleteWithClient(parsed args, client vmDeleteClient, output io.Writer) error {
+	vmName, err := resolvedVMDeleteName(parsed)
+	if err != nil {
+		return err
+	}
+
+	instance, err := client.Status(vmName)
+	if err != nil {
+		return err
+	}
+	if !strings.EqualFold(instance.Status, "Stopped") {
+		return fmt.Errorf("VM must be stopped before deletion: %s (status: %s). Run: yard vm stop %s", vmName, instance.Status, vmName)
+	}
+	if err := client.Delete(vmName); err != nil {
+		return err
+	}
+	fmt.Fprintf(output, "VM deleted: %s\n", vmName)
 	return nil
 }
 
@@ -1306,6 +1339,43 @@ func resolvedVMName(parsed args) (string, error) {
 	return "", err
 }
 
+func resolvedVMDeleteName(parsed args) (string, error) {
+	if len(parsed.positionals) != 1 {
+		return "", errors.New("usage: vm delete <project-or-vm>")
+	}
+
+	target := parsed.positionals[0]
+	registryPath, err := resolvedRegistryPath(parsed)
+	if err != nil {
+		return "", err
+	}
+	reg, err := registry.Load(registryPath)
+	if err != nil {
+		return target, nil
+	}
+	_, project, err := reg.Resolve(target)
+	if err != nil {
+		return target, nil
+	}
+	if err := ensureLocalVMRuntime(project); err != nil {
+		return "", err
+	}
+	if project.VM.Mode == "shared" && sharedVMProjectCount(reg, project.VM.Name) > 1 {
+		return "", fmt.Errorf("VM is shared by multiple projects: %s. Run: yard vm delete %s", project.VM.Name, project.VM.Name)
+	}
+	return project.VM.Name, nil
+}
+
+func sharedVMProjectCount(reg registry.Registry, vmName string) int {
+	count := 0
+	for _, project := range reg.Projects {
+		if project.Runtime.Type == registry.RuntimeTypeLocalVM && project.VM.Name == vmName {
+			count++
+		}
+	}
+	return count
+}
+
 func formatBytes(value int64) string {
 	if value <= 0 {
 		return "-"
@@ -1337,9 +1407,12 @@ Usage:
   go run ./cmd/yard vm status [project-or-vm]
   go run ./cmd/yard vm start [project-or-vm]
   go run ./cmd/yard vm stop [project-or-vm]
+  go run ./cmd/yard vm delete <project-or-vm>
   go run ./cmd/yard vm exec [project-or-vm] -- <command>
   go run ./cmd/yard ssh keys
   go run ./cmd/yard ssh host-key <host> [--port <port>]
+  go run ./cmd/yard guide list
+  go run ./cmd/yard guide <slug>
   go run ./cmd/yard exec [project-name] -- <command>
   go run ./cmd/yard process list [project-name]
   go run ./cmd/yard process start [project-name] <service-name>
@@ -1354,9 +1427,10 @@ Commands:
   config   Print resolved project config as JSON.
   project  Manage the host project registry.
   use      Set the current project in the host project registry.
-  init     Create a project .devctl.yml.
+  init     Create a project .yard.yml.
   vm       Manage Lima VMs.
   ssh      Inspect host SSH keys and remote host key fingerprints.
+  guide    Read CLI scenario guides.
   exec     Execute a command in the current or named project's runtime target.
   process  Manage configured dev service processes in the runtime target.
   start    Start the project VM and configured services.

@@ -9,7 +9,9 @@ import (
 	"strings"
 )
 
-const FileName = ".devctl.yml"
+const FileName = ".yard.yml"
+
+const legacyConfigFileName = "." + "dev" + "ctl.yml"
 
 var intPattern = regexp.MustCompile(`^-?\d+$`)
 
@@ -19,6 +21,10 @@ type Loaded struct {
 }
 
 func FindPath(startDir string) (string, bool) {
+	return findPath(startDir)
+}
+
+func findPath(startDir string) (string, bool) {
 	current, err := filepath.Abs(startDir)
 	if err != nil {
 		return "", false
@@ -45,13 +51,17 @@ func ResolveProjectPath(projectPath string) (string, bool) {
 	}
 
 	if info, err := os.Stat(resolved); err == nil && info.IsDir() {
-		return FindPath(resolved)
+		return findPath(resolved)
 	}
 
 	return resolved, true
 }
 
 func Load(projectPath string, workDir string) (Loaded, error) {
+	if err := RejectLegacyConfigPath(projectPath); err != nil {
+		return Loaded{}, err
+	}
+
 	var configPath string
 	var ok bool
 
@@ -62,6 +72,9 @@ func Load(projectPath string, workDir string) (Loaded, error) {
 	}
 	if !ok {
 		return Loaded{}, fmt.Errorf("no %s found", FileName)
+	}
+	if err := RejectLegacyConfigPath(configPath); err != nil {
+		return Loaded{}, err
 	}
 
 	content, err := os.ReadFile(configPath)
@@ -78,6 +91,13 @@ func Load(projectPath string, workDir string) (Loaded, error) {
 		ConfigPath: configPath,
 		Config:     parsed,
 	}, nil
+}
+
+func RejectLegacyConfigPath(projectPath string) error {
+	if filepath.Base(projectPath) == legacyConfigFileName {
+		return fmt.Errorf("legacy project config filenames are no longer supported; rename it to %s", FileName)
+	}
+	return nil
 }
 
 func ParseSimpleYAML(content string) (map[string]any, error) {

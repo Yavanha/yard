@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"yard/internal/config"
 )
 
 const (
@@ -451,8 +453,11 @@ func normalizeProject(project Project) (Project, error) {
 	project.Path = absPath
 
 	if project.Config == "" {
-		project.Config = filepath.Join(project.Path, ".devctl.yml")
+		project.Config = filepath.Join(project.Path, config.FileName)
 	} else {
+		if err := config.RejectLegacyConfigPath(project.Config); err != nil {
+			return Project{}, err
+		}
 		absConfig, err := filepath.Abs(project.Config)
 		if err != nil {
 			return Project{}, err

@@ -28,6 +28,19 @@ func TestParseVMStatusArgs(t *testing.T) {
 	assertEqual(t, parsed.positionals[0], "example")
 }
 
+func TestParseVMDeleteArgs(t *testing.T) {
+	t.Parallel()
+
+	parsed, err := parseArgs([]string{"vm", "delete", "example"})
+	if err != nil {
+		t.Fatalf("parseArgs returned error: %v", err)
+	}
+
+	assertEqual(t, parsed.command, "vm")
+	assertEqual(t, parsed.subcommand, "delete")
+	assertEqual(t, parsed.positionals[0], "example")
+}
+
 func TestParseExecArgs(t *testing.T) {
 	t.Parallel()
 
@@ -136,7 +149,7 @@ func TestParseInitArgs(t *testing.T) {
 func TestRunInitWritesConfigNonInteractive(t *testing.T) {
 	t.Parallel()
 
-	configPath := filepath.Join(t.TempDir(), ".devctl.yml")
+	configPath := filepath.Join(t.TempDir(), ".yard.yml")
 	err := runInit(args{
 		positionals: []string{"api"},
 		configPath:  configPath,
@@ -179,7 +192,7 @@ func TestRunInitWritesConfigNonInteractive(t *testing.T) {
 func TestRunInitRejectsExistingConfigWithoutForce(t *testing.T) {
 	t.Parallel()
 
-	configPath := filepath.Join(t.TempDir(), ".devctl.yml")
+	configPath := filepath.Join(t.TempDir(), ".yard.yml")
 	if err := os.WriteFile(configPath, []byte("project: existing\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -194,10 +207,23 @@ func TestRunInitRejectsExistingConfigWithoutForce(t *testing.T) {
 	}
 }
 
+func TestRunInitRejectsLegacyConfigPath(t *testing.T) {
+	t.Parallel()
+
+	err := runInit(args{
+		positionals: []string{"api"},
+		configPath:  filepath.Join(t.TempDir(), "."+"dev"+"ctl.yml"),
+		yes:         true,
+	})
+	if err == nil {
+		t.Fatal("expected legacy config path to fail")
+	}
+}
+
 func TestRunInitInteractive(t *testing.T) {
 	t.Parallel()
 
-	configPath := filepath.Join(t.TempDir(), ".devctl.yml")
+	configPath := filepath.Join(t.TempDir(), ".yard.yml")
 	var output bytes.Buffer
 	input := strings.Join([]string{
 		"api",
@@ -295,6 +321,18 @@ func TestParseProcessLogsArgs(t *testing.T) {
 	assertEqual(t, parsed.follow, true)
 }
 
+func TestParseGuideArgs(t *testing.T) {
+	t.Parallel()
+
+	parsed, err := parseArgs([]string{"guide", "smoke-test"})
+	if err != nil {
+		t.Fatalf("parseArgs returned error: %v", err)
+	}
+
+	assertEqual(t, parsed.command, "guide")
+	assertEqual(t, parsed.subcommand, "smoke-test")
+}
+
 func TestProcessActionTarget(t *testing.T) {
 	t.Parallel()
 
@@ -316,11 +354,11 @@ func TestProcessActionTarget(t *testing.T) {
 func TestResolvedConfigPathUsesDirectProjectPath(t *testing.T) {
 	t.Parallel()
 
-	resolved, err := resolvedConfigPath(args{projectPath: "/tmp/example/.devctl.yml"})
+	resolved, err := resolvedConfigPath(args{projectPath: "/tmp/example/.yard.yml"})
 	if err != nil {
 		t.Fatalf("resolvedConfigPath returned error: %v", err)
 	}
-	assertEqual(t, resolved, "/tmp/example/.devctl.yml")
+	assertEqual(t, resolved, "/tmp/example/.yard.yml")
 }
 
 func TestResolvedConfigPathUsesCurrentRegistryProject(t *testing.T) {
@@ -339,7 +377,7 @@ func TestResolvedConfigPathUsesCurrentRegistryProject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolvedConfigPath returned error: %v", err)
 	}
-	assertEqual(t, resolved, "/tmp/example/.devctl.yml")
+	assertEqual(t, resolved, "/tmp/example/.yard.yml")
 }
 
 func TestResolvedConfigPathUsesNamedRegistryProject(t *testing.T) {
@@ -365,7 +403,7 @@ func TestResolvedConfigPathUsesNamedRegistryProject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolvedConfigPath returned error: %v", err)
 	}
-	assertEqual(t, resolved, "/tmp/api/.devctl.yml")
+	assertEqual(t, resolved, "/tmp/api/.yard.yml")
 }
 
 func TestResolvedVMNameUsesCurrentRegistryProject(t *testing.T) {
@@ -456,11 +494,103 @@ func TestResolvedVMNameRejectsRemoteRuntimeProject(t *testing.T) {
 	}
 }
 
+func TestRunVMDeleteDeletesStoppedVM(t *testing.T) {
+	t.Parallel()
+
+	client := &recordingVMDeleteClient{
+		statuses: map[string]lima.Instance{
+			"raw-vm": {Name: "raw-vm", Status: "Stopped"},
+		},
+	}
+	var output bytes.Buffer
+	err := runVMDeleteWithClient(args{
+		positionals:  []string{"raw-vm"},
+		registryPath: filepath.Join(t.TempDir(), "missing.yaml"),
+	}, client, &output)
+	if err != nil {
+		t.Fatalf("runVMDeleteWithClient returned error: %v", err)
+	}
+
+	assertEqual(t, client.deleted[0], "raw-vm")
+	if !strings.Contains(output.String(), "VM deleted: raw-vm") {
+		t.Fatalf("expected delete output, got %q", output.String())
+	}
+}
+
+func TestRunVMDeleteRejectsRunningVM(t *testing.T) {
+	t.Parallel()
+
+	client := &recordingVMDeleteClient{
+		statuses: map[string]lima.Instance{
+			"raw-vm": {Name: "raw-vm", Status: "Running"},
+		},
+	}
+	err := runVMDeleteWithClient(args{
+		positionals:  []string{"raw-vm"},
+		registryPath: filepath.Join(t.TempDir(), "missing.yaml"),
+	}, client, &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("expected running VM delete to fail")
+	}
+	if len(client.deleted) != 0 {
+		t.Fatalf("expected no delete calls, got %#v", client.deleted)
+	}
+}
+
+func TestRunVMDeleteRejectsRemoteRuntimeProject(t *testing.T) {
+	t.Parallel()
+
+	registryPath := filepath.Join(t.TempDir(), "config.yaml")
+	reg, err := registry.New().Add("remote", registry.Project{
+		Path:    "/tmp/remote",
+		Runtime: registry.RuntimeTarget{Type: registry.RuntimeTypeRemote},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Save(registryPath, reg); err != nil {
+		t.Fatal(err)
+	}
+
+	err = runVMDeleteWithClient(args{
+		positionals:  []string{"remote"},
+		registryPath: registryPath,
+	}, &recordingVMDeleteClient{}, &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("expected remote runtime project to fail")
+	}
+}
+
+func TestRunVMDeleteRejectsSharedVMByProjectAlias(t *testing.T) {
+	t.Parallel()
+
+	registryPath := filepath.Join(t.TempDir(), "config.yaml")
+	reg, err := registry.New().Add("api", registry.Project{Path: "/tmp/api"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg, err = reg.Add("web", registry.Project{Path: "/tmp/web"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Save(registryPath, reg); err != nil {
+		t.Fatal(err)
+	}
+
+	err = runVMDeleteWithClient(args{
+		positionals:  []string{"api"},
+		registryPath: registryPath,
+	}, &recordingVMDeleteClient{}, &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("expected shared VM delete by project alias to fail")
+	}
+}
+
 func TestResolvedProjectConfigUsesRegistryVMName(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	configPath := filepath.Join(dir, ".devctl.yml")
+	configPath := filepath.Join(dir, ".yard.yml")
 	writeTestConfig(t, configPath)
 
 	registryPath := filepath.Join(t.TempDir(), "config.yaml")
@@ -490,7 +620,7 @@ func TestResolvedProjectConfigRejectsRemoteRuntimeProject(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	configPath := filepath.Join(dir, ".devctl.yml")
+	configPath := filepath.Join(dir, ".yard.yml")
 	writeTestConfig(t, configPath)
 
 	registryPath := filepath.Join(t.TempDir(), "config.yaml")
@@ -519,7 +649,7 @@ func TestResolvedProcessProjectUsesRemoteWorkdir(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	configPath := filepath.Join(dir, ".devctl.yml")
+	configPath := filepath.Join(dir, ".yard.yml")
 	writeTestConfig(t, configPath)
 
 	registryPath := filepath.Join(t.TempDir(), "config.yaml")
@@ -553,7 +683,7 @@ func TestResolvedProjectConfigUsesDirectProjectConfig(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	configPath := filepath.Join(dir, ".devctl.yml")
+	configPath := filepath.Join(dir, ".yard.yml")
 	writeTestConfig(t, configPath)
 
 	projectConfig, err := resolvedProjectConfig(args{projectPath: configPath})
@@ -745,8 +875,9 @@ func TestRunRemoteSetupChecksWorkdir(t *testing.T) {
 		t.Fatalf("expected reachability and workdir checks, got %#v", runner.runs)
 	}
 	last := runner.runs[1]
-	if got, want := last[len(last)-3:], []string{"sh", "-lc", "test -d '/srv/api'\"'\"'s'"}; !slicesEqual(got, want) {
-		t.Fatalf("expected workdir check suffix %#v, got %#v", want, got)
+	want := "'sh' '-lc' 'test -d '\\''/srv/api'\\''\"'\\''\"'\\''s'\\'''"
+	if got := last[len(last)-1]; got != want {
+		t.Fatalf("expected workdir check command %q, got %#v", want, last)
 	}
 }
 
@@ -834,7 +965,7 @@ func TestWriteStatusRows(t *testing.T) {
 		Target:      "api-vm",
 		TargetState: "Running",
 		VMMode:      "dedicated",
-		Config:      "/tmp/api/.devctl.yml",
+		Config:      "/tmp/api/.yard.yml",
 		Path:        "/tmp/api",
 	}})
 	if err != nil {
@@ -871,6 +1002,51 @@ func TestWriteProcessRows(t *testing.T) {
 		if !strings.Contains(got, expected) {
 			t.Fatalf("expected output to contain %q:\n%s", expected, got)
 		}
+	}
+}
+
+func TestRunGuideList(t *testing.T) {
+	t.Parallel()
+
+	var output bytes.Buffer
+	err := runGuide(args{subcommand: "list"}, &output)
+	if err != nil {
+		t.Fatalf("runGuide returned error: %v", err)
+	}
+
+	got := output.String()
+	for _, expected := range []string{"SLUG", "STATUS", "TITLE", "smoke-test", "Full CLI Smoke Test"} {
+		if !strings.Contains(got, expected) {
+			t.Fatalf("expected guide list to contain %q:\n%s", expected, got)
+		}
+	}
+	if strings.Contains(got, "README") {
+		t.Fatalf("expected README to be excluded:\n%s", got)
+	}
+}
+
+func TestRunGuideShow(t *testing.T) {
+	t.Parallel()
+
+	var output bytes.Buffer
+	err := runGuide(args{subcommand: "smoke-test"}, &output)
+	if err != nil {
+		t.Fatalf("runGuide returned error: %v", err)
+	}
+	if !strings.Contains(output.String(), "# Full CLI Smoke Test") {
+		t.Fatalf("expected guide markdown, got:\n%s", output.String())
+	}
+}
+
+func TestRunGuideRejectsUnknownGuide(t *testing.T) {
+	t.Parallel()
+
+	err := runGuide(args{subcommand: "missing"}, &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("expected unknown guide to fail")
+	}
+	if !strings.Contains(err.Error(), "unknown guide: missing") {
+		t.Fatalf("expected unknown guide error, got %v", err)
 	}
 }
 
@@ -941,7 +1117,7 @@ func TestRunStopRejectsRemoteVMFlagBeforeConfigLoad(t *testing.T) {
 	registryPath := filepath.Join(dir, "config.yaml")
 	reg, err := registry.New().Add("remote", registry.Project{
 		Path:    dir,
-		Config:  filepath.Join(dir, "missing.devctl.yml"),
+		Config:  filepath.Join(dir, "missing.yard.yml"),
 		Runtime: registry.RuntimeTarget{Type: registry.RuntimeTypeRemote},
 	})
 	if err != nil {
@@ -1036,6 +1212,24 @@ func (runner *recordingRuntimeRunner) Output(command string, args ...string) ([]
 
 func (runner *recordingRuntimeRunner) Run(command string, args ...string) error {
 	runner.runs = append(runner.runs, append([]string{command}, args...))
+	return nil
+}
+
+type recordingVMDeleteClient struct {
+	statuses map[string]lima.Instance
+	deleted  []string
+}
+
+func (client *recordingVMDeleteClient) Status(name string) (lima.Instance, error) {
+	instance, ok := client.statuses[name]
+	if !ok {
+		return lima.Instance{}, errors.New("VM not found: " + name)
+	}
+	return instance, nil
+}
+
+func (client *recordingVMDeleteClient) Delete(name string) error {
+	client.deleted = append(client.deleted, name)
 	return nil
 }
 

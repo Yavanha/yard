@@ -197,7 +197,7 @@ func serviceConfigs(values map[string]any, ports []PortMapping) ([]ServiceConfig
 
 	rawServices, ok := values["services"]
 	if !ok {
-		return legacyAppService(values, portByName)
+		return nil, nil
 	}
 	servicesMap, ok := rawServices.(map[string]any)
 	if !ok {
@@ -236,19 +236,6 @@ func serviceConfigs(values map[string]any, ports []PortMapping) ([]ServiceConfig
 		return services[left].Name < services[right].Name
 	})
 	return services, nil
-}
-
-func legacyAppService(values map[string]any, portByName map[string]int) ([]ServiceConfig, error) {
-	command := nestedString(values, "app", "dev_command", "")
-	if command == "" {
-		return nil, nil
-	}
-	return []ServiceConfig{{
-		Name:    "app",
-		Command: command,
-		Workdir: ".",
-		Port:    portByName["app"],
-	}}, nil
 }
 
 func requiredNestedMapString(values map[string]any, section string, key string) (string, error) {

@@ -47,11 +47,24 @@ func TestSSHArgs(t *testing.T) {
 		"ServerAliveInterval=30",
 		"lima-alpha",
 		"--",
-		"echo",
-		"hello",
+		"'echo' 'hello'",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("expected %#v, got %#v", want, got)
+	}
+}
+
+func TestSSHArgsQuotesRemoteShellCommand(t *testing.T) {
+	t.Parallel()
+
+	got := SSHArgs(Instance{
+		Name:          "alpha",
+		SSHConfigFile: "/tmp/alpha/ssh.config",
+	}, []string{"sh", "-lc", "cd '/home/ubuntu/work spaces/app' && printf ok"})
+
+	want := "'sh' '-lc' 'cd '\\''/home/ubuntu/work spaces/app'\\'' && printf ok'"
+	if got[len(got)-1] != want {
+		t.Fatalf("expected remote command %q, got %#v", want, got)
 	}
 }
 
@@ -72,6 +85,22 @@ func TestClientStartStop(t *testing.T) {
 		{"limactl", "start", "--yes", "alpha"},
 		{"limactl", "stop", "--yes", "alpha"},
 	}
+	if !reflect.DeepEqual(runner.runs, want) {
+		t.Fatalf("expected %#v, got %#v", want, runner.runs)
+	}
+}
+
+func TestClientDelete(t *testing.T) {
+	t.Parallel()
+
+	runner := &fakeRunner{}
+	client := NewClient(runner)
+
+	if err := client.Delete("alpha"); err != nil {
+		t.Fatalf("Delete returned error: %v", err)
+	}
+
+	want := [][]string{{"limactl", "delete", "--yes", "alpha"}}
 	if !reflect.DeepEqual(runner.runs, want) {
 		t.Fatalf("expected %#v, got %#v", want, runner.runs)
 	}
@@ -153,8 +182,7 @@ func TestClientExecUsesSSH(t *testing.T) {
 		t.Fatalf("expected one run, got %#v", runner.runs)
 	}
 	assertEqual(t, runner.runs[0][0], "ssh")
-	assertEqual(t, runner.runs[0][len(runner.runs[0])-2], "uname")
-	assertEqual(t, runner.runs[0][len(runner.runs[0])-1], "-a")
+	assertEqual(t, runner.runs[0][len(runner.runs[0])-1], "'uname' '-a'")
 }
 
 func TestClientExecOutputUsesSSH(t *testing.T) {
@@ -163,7 +191,7 @@ func TestClientExecOutputUsesSSH(t *testing.T) {
 	runner := &fakeRunner{
 		outputs: map[string][]byte{
 			"limactl list --format json alpha": []byte(`{"name":"alpha","status":"Running","sshConfigFile":"/tmp/alpha/ssh.config"}`),
-			"ssh -F /tmp/alpha/ssh.config -o ForwardAgent=yes -o ControlMaster=no -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=30 lima-alpha -- printf ok": []byte("ok"),
+			"ssh -F /tmp/alpha/ssh.config -o ForwardAgent=yes -o ControlMaster=no -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=30 lima-alpha -- 'printf' 'ok'": []byte("ok"),
 		},
 	}
 	client := NewClient(runner)

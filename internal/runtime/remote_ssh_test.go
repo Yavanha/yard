@@ -36,11 +36,24 @@ func TestRemoteSSHArgs(t *testing.T) {
 		"/tmp/ssh/remote",
 		"ubuntu@dev.example.com",
 		"--",
-		"printf",
-		"ok",
+		"'printf' 'ok'",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("expected %#v, got %#v", want, got)
+	}
+}
+
+func TestRemoteSSHArgsQuotesRemoteShellCommand(t *testing.T) {
+	t.Parallel()
+
+	got := RemoteSSHArgs(registry.RemoteServer{
+		Host: "dev.example.com",
+		User: "ubuntu",
+	}, []string{"sh", "-lc", "test -d '/home/ubuntu/work spaces/app'"})
+
+	want := "'sh' '-lc' 'test -d '\\''/home/ubuntu/work spaces/app'\\'''"
+	if got[len(got)-1] != want {
+		t.Fatalf("expected remote command %q, got %#v", want, got)
 	}
 }
 
@@ -76,7 +89,7 @@ func TestRemoteSSHExecUsesSSH(t *testing.T) {
 	if got, want := runner.runs[0][0], "ssh"; got != want {
 		t.Fatalf("expected %q, got %q", want, got)
 	}
-	if got, want := runner.runs[0][len(runner.runs[0])-1], "true"; got != want {
+	if got, want := runner.runs[0][len(runner.runs[0])-1], "'true'"; got != want {
 		t.Fatalf("expected command suffix %q, got %#v", want, runner.runs[0])
 	}
 }

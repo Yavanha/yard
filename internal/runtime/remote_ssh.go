@@ -107,7 +107,7 @@ func RemoteSSHArgs(remote registry.RemoteServer, command []string) []string {
 		args = append(args, "-i", remote.IdentityFile)
 	}
 	args = append(args, remote.User+"@"+remote.Host, "--")
-	return append(args, command...)
+	return append(args, shellCommand(command))
 }
 
 func RemoteHostKeyScanArgs(remote registry.RemoteServer) []string {
@@ -168,4 +168,19 @@ func validateRemote(remote registry.RemoteServer) error {
 		return fmt.Errorf("unsupported remote.port: %d", remote.Port)
 	}
 	return nil
+}
+
+func shellCommand(command []string) string {
+	quoted := make([]string, 0, len(command))
+	for _, arg := range command {
+		quoted = append(quoted, shellQuote(arg))
+	}
+	return strings.Join(quoted, " ")
+}
+
+func shellQuote(value string) string {
+	if value == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
 }

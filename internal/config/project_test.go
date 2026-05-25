@@ -56,7 +56,7 @@ services:
 	assertEqual(t, project.Services[1].Port, 3000)
 }
 
-func TestProjectConfigFromMapKeepsLegacyAppService(t *testing.T) {
+func TestProjectConfigFromMapIgnoresLegacyAppService(t *testing.T) {
 	t.Parallel()
 
 	parsed, err := ParseSimpleYAML(`vm_name: example-dev
@@ -78,12 +78,9 @@ ports:
 		t.Fatalf("ProjectConfigFromMap returned error: %v", err)
 	}
 
-	if len(project.Services) != 1 {
-		t.Fatalf("expected 1 service, got %d", len(project.Services))
+	if len(project.Services) != 0 {
+		t.Fatalf("expected no services, got %#v", project.Services)
 	}
-	assertEqual(t, project.Services[0].Name, "app")
-	assertEqual(t, project.Services[0].Command, "pnpm dev --host 0.0.0.0")
-	assertEqual(t, project.Services[0].Port, 3000)
 }
 
 func TestProjectConfigFromMapRequiresResources(t *testing.T) {

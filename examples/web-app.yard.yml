@@ -1,0 +1,25 @@
+org: acme
+project: web-app
+repo: git@github.com:acme/web-app.git
+vm_name: web-app-dev
+host: web-app.test
+vm_user: ubuntu
+repo_dir: /home/ubuntu/workspaces/web-app
+vm:
+  provider: auto
+  type: vz
+services:
+  web:
+    command: pnpm dev --host 0.0.0.0
+    workdir: .
+    port: 3000
+  worker:
+    command: pnpm worker
+    workdir: .
+resources:
+  cpus: 4
+  memory: 6G
+  disk: 50G
+ports:
+  web: 3000
+  preview: 4173

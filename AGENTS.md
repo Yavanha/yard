@@ -1,4 +1,4 @@
-# Agents Guide - devctl
+# Agents Guide - Yard
 
 ## Communication
 
@@ -14,6 +14,13 @@
 
 ## Scope
 
-- `devctl` est une CLI generique pour provisionner et piloter des environnements dev isoles.
-- La configuration projet vit dans `.devctl.yml` dans le repo cible.
+- `yard` est une CLI generique pour provisionner et piloter des environnements dev isoles.
+- La configuration projet canonique vit dans `.yard.yml` dans le repo cible.
 - Les secrets reels viennent d'un fournisseur externe au runtime, jamais d'un fichier versionne.
+
+## Documentation
+
+- La documentation utilisateur CLI vit dans `docs/cli/`.
+- Mettre a jour les stories de la Command Gallery quand le comportement CLI change.
+- Utiliser `yard` et `.yard.yml` dans la documentation utilisateur.
+- Marquer les features non finalisees comme `Experimental` ou `Planned`.

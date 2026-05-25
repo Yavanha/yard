@@ -14,7 +14,11 @@ _Avoid_: app, workspace
 
 **Project Registry**:
 La configuration globale hote qui associe un nom de projet a son repo local et a ses choix de runtime locaux.
-_Avoid_: `.devctl.yml` pour les preferences propres a une machine
+_Avoid_: `.yard.yml` pour les preferences propres a une machine
+
+**Project Config**:
+Le fichier versionne `.yard.yml` qui declare les metadonnees et services vendor-neutral d'un **Project**.
+_Avoid_: Project Registry
 
 **Dev VM**:
 Une VM de developpement isolee qui execute les outils runtime sans credentials persistants.
@@ -57,15 +61,17 @@ _Avoid_: dependance coeur obligatoire
 - Un **Host Controller** pilote un ou plusieurs **Projects**.
 - Les textes visibles dans la CLI `yard` sont en anglais: aide, erreurs, prompts interactifs, confirmations et tables.
 - Un **Project** est declare dans un **Project Registry** local a la machine hote.
+- Un **Project** peut avoir un **Project Config** versionne dans `.yard.yml`.
+- `.yard.yml` est le seul **Project Config** supporte.
 - Le **Project Registry** vit par defaut dans `~/.config/yard/config.yaml`.
 - Un **Project** peut utiliser une **Dev VM** partagee ou dediee selon `vm.mode` dans le **Project Registry**.
 - Un **Project** devra proposer un choix explicite de **Runtime Target**: **Dev VM** locale ou **Remote Server**, pour les usages de travail a distance ou de machine de dev partagee.
-- Le choix **Dev VM** locale vs **Remote Server** est une preference host-local dans le **Project Registry**, pas une option versionnee dans `.devctl.yml`.
+- Le choix **Dev VM** locale vs **Remote Server** est une preference host-local dans le **Project Registry**, pas une option versionnee dans `.yard.yml`.
 - Les metadonnees **Remote Server** non secretes vivent dans le **Project Registry** sous `remote`: host, user, port SSH, repertoire de travail distant, et chemin host-local optionnel vers une identite SSH.
 - Le coeur ne doit pas supposer que le **Runtime Target** est toujours une VM locale; les operations `start`, `stop`, `status`, `exec` et `process` doivent pouvoir passer par une interface cible.
 - Un **Remote Server** reste une cible d'execution, pas une source de repo: la decouverte Git et les credentials Git restent host-side via **Repository Source**.
-- Les secrets reels ne doivent pas etre stockes dans le **Project Registry**, dans `.devctl.yml`, dans la **Dev VM** ou sur un **Remote Server** par Yard.
-- Un **Project Registry** peut stocker une identite Git host-side (`git.identity_file`, `git.fingerprint`) pour tester et cloner un repo sans l'inscrire dans `.devctl.yml`.
+- Les secrets reels ne doivent pas etre stockes dans le **Project Registry**, dans `.yard.yml`, dans la **Dev VM** ou sur un **Remote Server** par Yard.
+- Un **Project Registry** peut stocker une identite Git host-side (`git.identity_file`, `git.fingerprint`) pour tester et cloner un repo sans l'inscrire dans `.yard.yml`.
 - Un **Environment** peut etre mono-project maintenant et multi-project plus tard pour composer front, backend, workers ou services dans des repos differents.
 - **Start** reutilise les ressources deja demarrees au lieu de dupliquer ou detruire des processus.
 - Un **Process** expose au minimum un etat, un PID ou identifiant equivalent, des ports et des logs consultables depuis le **Host Controller**.
@@ -104,15 +110,15 @@ _Avoid_: dependance coeur obligatoire
 
 ## Flagged ambiguities
 
-- "dedicated" signifie maintenant `vm.mode: dedicated` dans le **Project Registry**, pas une option versionnee dans `.devctl.yml`.
+- "dedicated" signifie maintenant `vm.mode: dedicated` dans le **Project Registry**, pas une option versionnee dans `.yard.yml`.
 - "local VM ou serveur distant" signifie un choix de **Runtime Target** dans le **Project Registry**; `vm.mode` reste le detail du choix **Dev VM**.
-- Les noms comme `lmdlp` sont des exemples de **Project**, jamais des cas hardcodes dans Yard.
+- Les noms comme `lmdlp` sont des cas projet historiques; les exemples utilisateur doivent utiliser des noms generiques comme `web-app`, `api` ou `worker`.
 - `start` signifie demarrage idempotent et non destructif; les actions destructives appartiennent a `reset` ou a des commandes explicitement confirmees.
 - "process ouvert" signifie un **Process** observable et controle par `yard status/logs`, pas un terminal interactif laisse ouvert.
 - "backend" n'est pas un type special de **Project**; c'est souvent un **Process** dans le meme repo, ou un autre **Project** compose plus tard dans un **Environment** multi-project.
 - `services` decrit des commandes generiques; les choix NestJS, PHP, Vite, Supabase ou autres restent dans la commande/adapters, pas dans le coeur.
 - "GitHub org" est une capacite de **Repository Source**, pas une hypothese hardcodee dans le coeur de Yard.
-- L'identite SSH choisie pour un import est un choix host-side; elle ne doit pas etre copiee dans la **Dev VM** ni dans `.devctl.yml`.
+- L'identite SSH choisie pour un import est un choix host-side; elle ne doit pas etre copiee dans la **Dev VM** ni dans `.yard.yml`.
 - "serveur distant" signifie **Remote Server** comme **Runtime Target**, pas remplacement du **Host Controller** ni stockage de secrets sur le serveur.
 - Supabase, Infisical et Vite sont des **Adapters** optionnels, pas des preconditions pour tous les **Projects**.
 
@@ -123,7 +129,7 @@ current_project: example
 projects:
   example:
     path: /Users/me/workspaces/example
-    config: /Users/me/workspaces/example/.devctl.yml
+    config: /Users/me/workspaces/example/.yard.yml
     git:
       identity_file: /Users/me/.ssh/yard_acme_ed25519
       fingerprint: SHA256:abc123
@@ -145,4 +151,4 @@ projects:
       host_key_fingerprint: SHA256:...
 ```
 
-`config` est optionnel et vaut `<path>/.devctl.yml` par defaut pendant la migration. `git` est optionnel et reste local a la machine hote. `runtime.type` vaut `local-vm` par defaut et peut etre `remote-server` pour une cible SSH. `remote` est optionnel, host-local, et ne stocke que des metadonnees non secretes; `remote.identity_file` est un chemin vers une cle privee hote, jamais le contenu de la cle, et `remote.host_key_fingerprint` est une empreinte de cle hote non secrete verifiee avant connexion quand elle est fournie. `vm.mode` vaut `shared` par defaut, et `vm.name` vaut `yard-shared` quand le mode est partage.
+`config` est optionnel et vaut `<path>/.yard.yml` par defaut. `git` est optionnel et reste local a la machine hote. `runtime.type` vaut `local-vm` par defaut et peut etre `remote-server` pour une cible SSH. `remote` est optionnel, host-local, et ne stocke que des metadonnees non secretes; `remote.identity_file` est un chemin vers une cle privee hote, jamais le contenu de la cle, et `remote.host_key_fingerprint` est une empreinte de cle hote non secrete verifiee avant connexion quand elle est fournie. `vm.mode` vaut `shared` par defaut, et `vm.name` vaut `yard-shared` quand le mode est partage.

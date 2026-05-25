@@ -7,7 +7,7 @@ docker_users:
 devcontainer_cli_version: "0.80.2"
 supabase_cli_enabled: false
 supabase_cli_version: "2.98.2"
-devctl_cache_dir: /var/cache/devctl
+yard_cache_dir: /var/cache/yard
 hidepid_enabled: true
 docker_apt_arch_map:
   x86_64: amd64

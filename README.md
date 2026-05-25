@@ -1,221 +1,160 @@
 # Yard
 
-CLI generique pour creer et piloter des environnements de developpement isoles.
+Yard est une CLI pour provisionner et piloter des environnements de developpement isoles depuis la machine hote.
 
-Le repo et la CLI Node V1 portent encore le nom historique `devctl`. Le produit et le prototype Go V2 utilisent le nom cible `yard`.
+Les textes visibles par les utilisateurs dans la CLI restent en anglais: aide, erreurs, prompts, confirmations et tables.
 
-Les textes visibles par les utilisateurs de la CLI sont en anglais: aide, erreurs, prompts, confirmations et sorties tableau.
+## Etat
 
-Objectif V1:
-- Lima pour une VM par projet sur macOS, Linux et WSL2.
-- Ansible pour provisionner la VM.
-- Docker uniquement dans la VM.
-- Devcontainer CLI execute dans la VM.
-- Git dans la VM via SSH agent forwarding.
-- Infisical cote hote pour injecter les secrets runtime sans fichier `.env` reel.
+Yard est la surface produit et CLI canonique.
 
-## Usage
+Capacites actuelles:
+- registre projets cote hote;
+- runtime local VM via Lima;
+- runtime remote server via SSH;
+- scaffold de config projet;
+- import projet avec identite SSH cote hote;
+- setup, status et exec sur la cible runtime;
+- start, stop et logs des services de dev;
+- inspection des fingerprints de host key remote.
 
-Verification locale:
+Le support remote server est implemente mais doit encore passer un smoke end-to-end sur un vrai serveur SSH avant d'etre considere completement valide.
 
-```bash
-pnpm run check
-```
+## Depuis Les Sources
 
-Depuis un repo projet contenant `.devctl.yml`:
-
-```bash
-devctl doctor
-devctl config
-devctl init
-devctl up
-devctl hosts sync
-devctl ssh config
-devctl provision
-devctl repo sync
-devctl container up
-devctl container rebuild
-devctl app dev
-devctl down
-```
-
-Si `.devctl.yml` manque, `devctl` affiche un warning et propose `devctl init`.
-
-Commandes MVP:
-- `doctor`: verifie les prerequis hote et affiche les commandes d'installation par OS.
-- `up`: cree la VM Lima si elle n'existe pas, apres confirmation ressources.
-- `hosts sync`: ajoute ou met a jour `127.0.0.1 <host>` dans `/etc/hosts` pour les ports forwardes par Lima.
-- `ssh config`: imprime le bloc SSH Lima avec `ForwardAgent yes`.
-- `provision`: lance le playbook Ansible embarque dans `devctl`.
-- `repo sync`: clone le repo dans la VM ou fait un fast-forward si le repo est propre.
-- `container up`: demarre le devcontainer depuis le repo dans la VM.
-- `container rebuild`: recree le devcontainer existant.
-- `app dev`: demarre Supabase local si configure, exporte les secrets Infisical cote hote et lance la commande dev dans le devcontainer sans ecrire de fichier `.env`.
-- `down`: stoppe le devcontainer et le stack Supabase du projet. Avec `--vm`, stoppe aussi la VM Lima.
-
-## Installation globale
-
-Prerequis macOS:
+Pendant le developpement, Yard se lance depuis ce repo:
 
 ```bash
-brew install lima ansible pnpm git
+go run ./cmd/yard --help
 ```
 
-Installer les CLIs d'adapters seulement pour les projets qui les utilisent, par exemple Infisical cote host ou Supabase CLI cote VM.
+Dans la documentation utilisateur, les commandes sont ecrites `yard ...`. Depuis les sources, remplacer `yard` par `go run ./cmd/yard`.
 
-V1 locale:
+## Quick Start
+
+Creer une config projet:
 
 ```bash
-pnpm link --global
-devctl --help
+yard init web-app --yes --config .yard.yml
 ```
 
-Plus tard, `devctl` pourra etre publie comme package prive et installe avec:
+Enregistrer un projet local VM:
 
 ```bash
-pnpm add --global devctl
+yard project add web-app /path/to/web-app --runtime local-vm
+yard use web-app
 ```
 
-## Securite supply-chain
+Configurer et demarrer le projet:
 
-`devctl` peut etre compromis comme tout outil de developpement s'il tire du code non maitrise. En V1, la CLI reduit ce risque:
+```bash
+yard setup web-app
+yard start web-app
+yard status web-app
+yard process logs web-app web --tail 80
+```
 
-- aucune dependance runtime;
-- aucun script `postinstall`;
-- configuration projet explicite dans `.devctl.yml`;
-- secrets reels jamais stockes dans le repo;
-- versions d'outils externes a pinner avant installation dans la VM.
+Arreter les services du projet:
 
-Quand des dependances seront ajoutees, elles devront etre limitees, pinnees dans le lockfile et auditees avant publication.
+```bash
+yard stop web-app
+```
 
-## Config projet
+## Remote Server Quick Start
+
+Recuperer le fingerprint de host key remote:
+
+```bash
+yard ssh host-key dev.example.com --port 22
+```
+
+Enregistrer un projet remote:
+
+```bash
+yard project add api /path/to/api \
+  --runtime remote-server \
+  --remote-host dev.example.com \
+  --remote-user ubuntu \
+  --remote-workdir /home/ubuntu/workspaces/api \
+  --remote-host-key SHA256:...
+```
+
+Verifier et utiliser la cible remote:
+
+```bash
+yard setup api
+yard exec api -- pwd
+yard process list api
+yard start api
+yard stop api
+```
+
+## Project Config
+
+Le fichier de config projet canonique est `.yard.yml`.
 
 Exemple:
 
 ```yaml
-org: lmdlp
-project: lmdlp-client
-repo: git@github.com:lmdlp/lmdlp_client.git
-vm_name: lmdlp-dev
-host: lmdlp-dev.test
+org: acme
+project: web-app
+repo: git@github.com:acme/web-app.git
+vm_name: web-app-dev
+host: web-app.test
 vm_user: ubuntu
-repo_dir: /home/ubuntu/workspaces/lmdlp_client
+repo_dir: /home/ubuntu/workspaces/web-app
 vm:
   provider: auto
   type: vz
-supabase:
-  enabled: true
-  seed: start
-infisical:
-  project_path: /lmdlp
-  default_env: dev
-app:
-  dev_command: pnpm dev --host 0.0.0.0
 services:
-  app:
+  web:
     command: pnpm dev --host 0.0.0.0
     workdir: .
     port: 3000
+  worker:
+    command: pnpm worker
+    workdir: .
 resources:
   cpus: 4
   memory: 6G
   disk: 50G
 ports:
-  app: 3000
+  web: 3000
   preview: 4173
-  supabase_api: 54321
-  supabase_db: 54322
-  supabase_studio: 54323
-  mailpit: 54324
 ```
 
-`vm.provider: auto` choisit Lima sur macOS, Linux et WSL2. Windows natif n'est pas supporte en V1: lancer `devctl` depuis WSL2.
+Un exemple reutilisable vit dans `examples/web-app.yard.yml`.
 
-Sur macOS, `vm.type: vz` evite le chemin QEMU de Multipass et contourne l'erreur Apple Silicon `host-arm-cpu.sme`.
+## Host Registry
 
-`supabase.seed: start` laisse `supabase start` appliquer migrations et `supabase/seed.sql` au premier demarrage local. Utiliser `reset` seulement pour forcer `supabase db reset --local` a chaque `app dev`, car cela detruit les donnees locales.
+Yard stocke les choix locaux dans `~/.config/yard/config.yaml`.
 
-Pour fin de session:
+Le registre peut contenir:
+- projet courant;
+- chemin local du projet;
+- chemin de config;
+- runtime target: `local-vm` ou `remote-server`;
+- mode et nom de VM locale;
+- metadonnees SSH remote;
+- metadonnees d'identite Git cote hote.
+
+Les secrets reels ne doivent jamais etre stockes dans le repo, `.yard.yml`, le registre hote, une Dev VM ou un Remote Server par Yard. Les secrets runtime doivent venir d'un fournisseur externe.
+
+## Developpement
+
+Avant commit:
 
 ```bash
-devctl down --project .devctl.yml
+pnpm run check
 ```
 
-Si un stack Supabase a ete lance hors du dossier projet, ajouter `--supabase-all`. Pour tout eteindre, VM incluse:
+Le check valide l'aide Yard, l'exemple de config et tous les tests Go.
 
-```bash
-devctl down --project .devctl.yml --supabase-all --vm
-```
+## Direction Documentation
 
-## Etat
+La documentation utilisateur vit dans la CLI Command Gallery: [`docs/cli/`](docs/cli/), organisee par scenarios d'abord et reference commandes ensuite.
 
-V1 locale en cours: orchestration Lima, provision Ansible, sync Git VM, devcontainer, app dev avec injection Infisical runtime.
-
-## Migration Go V2 - Yard
-
-La CLI Node reste la reference fonctionnelle pendant la migration.
-
-Premier slice Go:
-
-```bash
-go run ./cmd/yard config --project examples/lmdlp.devctl.yml
-go test ./...
-```
-
-Objectif: porter les commandes une par une, avec tests, avant de remplacer le binaire Node.
-
-Registre projets host:
-
-```bash
-go run ./cmd/yard project add
-go run ./cmd/yard project add example /path/to/repo --runtime local-vm
-go run ./cmd/yard project add remote-api /path/to/repo --runtime remote-server --remote-host dev.example.com --remote-user ubuntu --remote-workdir /home/ubuntu/workspaces/api --remote-host-key SHA256:...
-go run ./cmd/yard project import
-go run ./cmd/yard project import example --repo git@github.com:acme/example.git --identity ~/.ssh/yard_acme --path /path/to/repo --runtime local-vm
-go run ./cmd/yard project import remote-api --repo git@github.com:acme/api.git --identity ~/.ssh/yard_acme --path /path/to/repo --runtime remote-server --remote-host dev.example.com --remote-user ubuntu --remote-workdir /home/ubuntu/workspaces/api --remote-host-key SHA256:...
-go run ./cmd/yard project inspect example
-go run ./cmd/yard project list
-go run ./cmd/yard project remove example
-go run ./cmd/yard use example
-go run ./cmd/yard init example
-go run ./cmd/yard init example --yes --config /path/to/repo/.devctl.yml
-go run ./cmd/yard config
-go run ./cmd/yard config example
-go run ./cmd/yard vm list
-go run ./cmd/yard vm status example
-go run ./cmd/yard vm start example
-go run ./cmd/yard vm stop example
-go run ./cmd/yard exec example -- uname -a
-go run ./cmd/yard ssh keys
-go run ./cmd/yard ssh host-key dev.example.com --port 22
-go run ./cmd/yard process list example
-go run ./cmd/yard process start example app
-go run ./cmd/yard process logs example app --tail 80
-go run ./cmd/yard process stop example app
-go run ./cmd/yard start example
-go run ./cmd/yard stop example
-go run ./cmd/yard stop example --vm
-go run ./cmd/yard status
-go run ./cmd/yard status example
-go run ./cmd/yard setup example
-```
-
-Le registre vit par defaut dans `~/.config/yard/config.yaml`. Les choix locaux comme `runtime.type: local-vm|remote-server`, `remote.*` et `vm.mode: shared|dedicated` restent dans ce registre, pas dans `.devctl.yml`.
-Sans arguments, `project add` lance un wizard et affiche le YAML du registre avant ecriture.
-
-Notes de cadrage:
-- `Project` reste un repo enregistre. Un backend separe sera donc un autre `Project`.
-- Un futur `Environment` pourra composer plusieurs `Projects` pour front, backend, workers ou services.
-- Dans un meme repo, declarer plusieurs `services` vendor-neutral, par exemple `web`, `api` ou `worker`; Yard ne depend pas de Nest, PHP, Vite ou Supabase pour les piloter.
-- `runtime.type` explicite la cible d'execution: `local-vm` pour Lima local, `remote-server` pour une cible SSH.
-- `remote.host`, `remote.user`, `remote.port`, `remote.workdir`, `remote.identity_file` et `remote.host_key_fingerprint` configurent la cible SSH; `remote.identity_file` est seulement un chemin host-local, jamais le contenu d'une cle, et `remote.host_key_fingerprint` est une empreinte de cle hote non secrete verifiee avant connexion quand elle est fournie.
-- Les flags `--remote-*` sont acceptes uniquement avec `--runtime remote-server`; `--remote-port` vaut 22 par defaut.
-- `exec`, `process`, `start` et `stop` fonctionnent deja sur `remote-server` via SSH; `setup` verifie la reachability et l'existence de `remote.workdir` sans creation ni installation, et `status` expose `TARGET_STATE` avec `reachable` ou `unreachable` pour ces cibles.
-- `start` cree/demarre la VM puis lance les services sans doubler les processus deja ouverts; `stop` coupe les services et n'eteint une VM partagee qu'avec `--vm`.
-- `init` genere une config projet sans secrets ni adapters obligatoires; `--yes` donne le mode non interactif et `--force` est requis pour ecraser.
-- `ssh keys` liste les cles publiques detectees cote host avec fingerprint, commentaire et presence dans l'agent SSH, sans lire de cle privee; `ssh host-key` scanne les fingerprints publics d'un serveur distant.
-- `project import` sans arguments lance un wizard SSH: selection de cle existante ou creation host-side via `ssh-keygen`, avec upload optionnel par `gh`; les chemins `yes` et `not sure` testent la cle choisie et proposent une creation si elle echoue.
-- `project import` teste l'acces Git avec `GIT_SSH_COMMAND`, refuse un dossier cible non vide, clone, puis enregistre le projet et son identite Git dans le registre host.
-- `project inspect` affiche les chemins locaux, la VM cible et l'identite Git host-side enregistree pour un projet.
-- `project remove` supprime uniquement l'entree du registre host; il ne supprime pas le repo local ni la VM.
-- La decouverte GitHub/orgs doit rester cote host, probablement via `gh`, pour reutiliser les credentials locaux sans les persister dans la VM.
+Statuts de features:
+- `Available`: implemente et couvert par les checks automatises.
+- `Experimental`: implemente mais pas encore valide en conditions reelles.
+- `Planned`: pas encore implemente.

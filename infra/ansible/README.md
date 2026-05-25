@@ -2,7 +2,7 @@
 
 Provision durable de la VM de developpement.
 
-La VM est creee par `devctl up` avec Lima. Ansible se connecte ensuite via le fichier SSH genere par Lima (`ssh -F ~/.lima/<vm>/ssh.config lima-<vm>`).
+La VM est creee par Yard avec Lima. Ansible se connecte ensuite via le fichier SSH genere par Lima (`ssh -F ~/.lima/<vm>/ssh.config lima-<vm>`).
 
 V1 cible:
 - Docker Engine officiel dans la VM.

@@ -18,7 +18,7 @@ func TestAddProjectDefaults(t *testing.T) {
 	project := reg.Projects["example"]
 	assertEqual(t, reg.CurrentProject, "example")
 	assertEqual(t, project.Runtime.Type, "local-vm")
-	assertEqual(t, project.Config, "/tmp/example/.devctl.yml")
+	assertEqual(t, project.Config, "/tmp/example/.yard.yml")
 	assertEqual(t, project.VM.Mode, "shared")
 	assertEqual(t, project.VM.Name, "yard-shared")
 }
@@ -66,6 +66,18 @@ func TestAddProjectRejectsInvalidRemotePort(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "unsupported remote.port") {
 		t.Fatalf("expected remote.port error, got %v", err)
+	}
+}
+
+func TestAddProjectRejectsLegacyConfigPath(t *testing.T) {
+	t.Parallel()
+
+	_, err := New().Add("example", Project{
+		Path:   "/tmp/example",
+		Config: "/tmp/example/." + "dev" + "ctl.yml",
+	})
+	if err == nil {
+		t.Fatal("expected legacy config path to fail")
 	}
 }
 

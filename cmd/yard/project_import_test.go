@@ -265,7 +265,7 @@ func TestRunProjectImportInteractiveSelectsExistingKey(t *testing.T) {
 	}
 	project := reg.Projects["api"]
 	assertEqual(t, project.Path, absDestination)
-	assertEqual(t, project.Config, filepath.Join(absDestination, ".devctl.yml"))
+	assertEqual(t, project.Config, filepath.Join(absDestination, ".yard.yml"))
 	assertEqual(t, project.Git.IdentityFile, absIdentity)
 	assertEqual(t, project.Git.Fingerprint, "SHA256:abc123")
 	assertEqual(t, project.Runtime.Type, "local-vm")

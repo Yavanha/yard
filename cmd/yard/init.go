@@ -197,6 +197,9 @@ func targetConfigPath(parsed args) (string, error) {
 		}
 		target = filepath.Join(current, config.FileName)
 	}
+	if err := config.RejectLegacyConfigPath(target); err != nil {
+		return "", err
+	}
 	return filepath.Abs(target)
 }
 

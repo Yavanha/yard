@@ -108,7 +108,7 @@ func TestRunProjectAddInteractive(t *testing.T) {
 	}
 	project := reg.Projects["api"]
 	assertEqual(t, project.Path, repoPath)
-	assertEqual(t, project.Config, filepath.Join(repoPath, ".devctl.yml"))
+	assertEqual(t, project.Config, filepath.Join(repoPath, ".yard.yml"))
 	assertEqual(t, project.Runtime.Type, "local-vm")
 	assertEqual(t, project.VM.Mode, "dedicated")
 	assertEqual(t, project.VM.Name, "api-dev")
@@ -269,7 +269,7 @@ func TestRunProjectInspectPrintsGitIdentity(t *testing.T) {
 	registryPath := filepath.Join(t.TempDir(), "config.yaml")
 	reg, err := registry.New().Add("api", registry.Project{
 		Path:   "/tmp/api",
-		Config: "/tmp/api/.devctl.yml",
+		Config: "/tmp/api/.yard.yml",
 		Git: registry.Git{
 			IdentityFile: "/tmp/ssh/yard_acme_ed25519",
 			Fingerprint:  "SHA256:abc123",

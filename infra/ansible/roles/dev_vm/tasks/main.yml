@@ -139,9 +139,9 @@
     state: link
     force: true
 
-- name: Create devctl cache directory
+- name: Create Yard cache directory
   ansible.builtin.file:
-    path: "{{ devctl_cache_dir }}"
+    path: "{{ yard_cache_dir }}"
     state: directory
     owner: root
     group: root
@@ -151,7 +151,7 @@
 - name: Download Supabase CLI checksums
   ansible.builtin.get_url:
     url: "{{ supabase_cli_release_url }}/{{ supabase_cli_checksums }}"
-    dest: "{{ devctl_cache_dir }}/{{ supabase_cli_checksums }}"
+    dest: "{{ yard_cache_dir }}/{{ supabase_cli_checksums }}"
     owner: root
     group: root
     mode: "0644"
@@ -160,7 +160,7 @@
 - name: Download pinned Supabase CLI deb
   ansible.builtin.get_url:
     url: "{{ supabase_cli_release_url }}/{{ supabase_cli_deb }}"
-    dest: "{{ devctl_cache_dir }}/{{ supabase_cli_deb }}"
+    dest: "{{ yard_cache_dir }}/{{ supabase_cli_deb }}"
     owner: root
     group: root
     mode: "0644"
@@ -169,13 +169,13 @@
 - name: Verify Supabase CLI checksum
   ansible.builtin.shell: "grep -F {{ supabase_cli_deb | quote }} {{ supabase_cli_checksums | quote }} | sha256sum -c -"
   args:
-    chdir: "{{ devctl_cache_dir }}"
+    chdir: "{{ yard_cache_dir }}"
   changed_when: false
   when: supabase_cli_enabled | bool
 
 - name: Install pinned Supabase CLI
   ansible.builtin.apt:
-    deb: "{{ devctl_cache_dir }}/{{ supabase_cli_deb }}"
+    deb: "{{ yard_cache_dir }}/{{ supabase_cli_deb }}"
     state: present
   when: supabase_cli_enabled | bool
 

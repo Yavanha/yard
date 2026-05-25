@@ -145,6 +145,10 @@ func (c Client) Stop(name string) error {
 	return c.Runner.Run("limactl", "stop", "--yes", name)
 }
 
+func (c Client) Delete(name string) error {
+	return c.Runner.Run("limactl", "delete", "--yes", name)
+}
+
 func (c Client) Setup(project config.ProjectConfig) (SetupResult, error) {
 	exists, err := c.Exists(project.VMName)
 	if err != nil {
@@ -246,7 +250,7 @@ func SSHArgs(instance Instance, command []string) []string {
 		"lima-" + instance.Name,
 		"--",
 	}
-	return append(args, command...)
+	return append(args, shellCommand(command))
 }
 
 func RenderConfig(project config.ProjectConfig) (string, error) {
@@ -333,4 +337,19 @@ func FormatSizeForLima(value string) (string, error) {
 func quoteYAML(value string) string {
 	encoded, _ := json.Marshal(value)
 	return string(encoded)
+}
+
+func shellCommand(command []string) string {
+	quoted := make([]string, 0, len(command))
+	for _, arg := range command {
+		quoted = append(quoted, shellQuote(arg))
+	}
+	return strings.Join(quoted, " ")
+}
+
+func shellQuote(value string) string {
+	if value == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
 }
